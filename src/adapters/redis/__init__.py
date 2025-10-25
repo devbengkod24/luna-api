@@ -1,0 +1,2 @@
+"""Redis adapter module."""
+

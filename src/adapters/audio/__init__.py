@@ -1,0 +1,2 @@
+"""Audio adapter module."""
+
