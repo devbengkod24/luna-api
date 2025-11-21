@@ -49,8 +49,13 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+    # build: 
+      # context: .
+      # dockerfile_inline: |
+          # FROM qdrant/qdrant:v1.15.5
+          # RUN apt-get update -yq && apt-get install -yqq curl
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      test: curl -s http://localhost:6333/healthz | grep -q 'healthz check passed' || exit 1
       interval: 10s
       timeout: 5s
       retries: 5

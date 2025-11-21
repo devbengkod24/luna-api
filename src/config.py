@@ -22,11 +22,11 @@ class Settings(BaseSettings):
     qdrant_collection: str = "knowledge_base"
     
     # LLM
-    # llm_api_key: str = ""
-    # llm_model: str = "gpt-3.5-turbo"
+    llm_api_key: str = ""
+    llm_model: str = "gpt-3.5-turbo"
     
     # STT
-    # stt_api_key: str = ""
+    stt_api_key: str = ""
     
     # CORS
     cors_origins: list[str] = ["*"]
