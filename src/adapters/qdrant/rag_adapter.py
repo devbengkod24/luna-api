@@ -3,22 +3,22 @@ from typing import List
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
+from src.config import settings
 from src.ports.rag import IRAGAdapter
 
 
 class QdrantRAGAdapter(IRAGAdapter):
     """RAG adapter using Qdrant vector database."""
     
-    def __init__(self, url: str, collection_name: str = "knowledge_base"):
-        """Initialize Qdrant client.
-        
-        Args:
-            url: Qdrant server URL
-            collection_name: Name of the collection
-        """
-        self.client = AsyncQdrantClient(url=url)
-        self.collection_name = collection_name
-        self.embedding_dim = 384  # Example dimension, adjust based on your embedding model
+    def __init__(self, collection_name: str = None):
+        """Initialize Qdrant client with gRPC."""
+        self.client = AsyncQdrantClient(
+            host=settings.qdrant_host,
+            grpc_port=settings.qdrant_grpc_port,
+            prefer_grpc=True,
+        )
+        self.collection_name = collection_name or settings.qdrant_collection_name
+        self.embedding_dim = 384  # TODO: Adjust based on your embedding model
     
     async def initialize(self):
         """Initialize collection if not exists."""

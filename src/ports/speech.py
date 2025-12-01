@@ -1,4 +1,4 @@
-"""Audio port interfaces."""
+"""Speech port interfaces."""
 from abc import ABC, abstractmethod
 
 
@@ -6,11 +6,11 @@ class ISTTAdapter(ABC):
     """Interface for Speech-to-Text adapter."""
     
     @abstractmethod
-    async def transcribe(self, audio_base64: str) -> str:
-        """Transcribe audio to text.
+    async def transcribe(self, speech_base64: str) -> str:
+        """Transcribe speech audio to text.
         
         Args:
-            audio_base64: Base64-encoded audio data
+            speech_base64: Base64-encoded speech audio data
             
         Returns:
             str: Transcribed text
@@ -23,13 +23,13 @@ class ITTSAdapter(ABC):
     
     @abstractmethod
     async def synthesize(self, text: str) -> str:
-        """Synthesize text to speech.
+        """Synthesize text to speech audio.
         
         Args:
             text: Text to synthesize
             
         Returns:
-            str: Base64-encoded audio data
+            str: Base64-encoded speech audio data
         """
         pass
 

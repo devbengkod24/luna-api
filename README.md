@@ -74,7 +74,7 @@ VSA-BE-FastAPIv2/
 │   │
 │   ├── use_cases/              # Use Case Layer (Business Logic)
 │   │   ├── chat_text.py        # Text chat use case
-│   │   ├── chat_audio.py       # Audio chat use case
+│   │   ├── chat_speech.py      # Speech chat use case
 │   │   ├── chat_history.py     # Chat history use cases
 │   │   └── vision_stream.py    # Vision streaming use case
 │   │
@@ -484,7 +484,7 @@ Beberapa adapters masih berupa template dan perlu diimplementasikan:
    - Integrasi model emotion detection
    - Integrasi model face recognition
 
-3. **Audio Adapters** (`src/adapters/audio/`)
+3. **Speech Adapters** (`src/adapters/speech/`)
    - STT: Integrasi Whisper atau service lain
    - TTS: Integrasi TTS service
 

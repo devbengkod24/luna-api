@@ -211,7 +211,7 @@ Adapters berikut masih template dan perlu implementasi:
   - Implementasi model emotion detection
   - Implementasi model face recognition
   
-- **Audio Adapters** (`src/adapters/audio/`)
+- **Speech Adapters** (`src/adapters/speech/`)
   - STT: Integrasi Whisper atau service lain
   - TTS: Integrasi TTS service
 

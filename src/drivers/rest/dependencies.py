@@ -1,16 +1,17 @@
 """Dependency injection for FastAPI."""
 from typing import AsyncGenerator
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.database.connection import DatabaseConnection
 from src.adapters.database.repository import ChatRepository
 from src.adapters.llm.llm_adapter import LLMAdapter
 from src.adapters.qdrant.rag_adapter import QdrantRAGAdapter
-from src.adapters.audio.stt_adapter import STTAdapter
+from src.adapters.speech.stt_adapter import STTAdapter
 from src.adapters.redis.cache_adapter import RedisCacheAdapter
 from src.adapters.vision.vision_adapter import VisionAdapter
 from src.use_cases.chat_text import ChatTextUseCase
-from src.use_cases.chat_audio import ChatAudioUseCase
+from src.use_cases.chat_speech import ChatSpeechUseCase
 from src.use_cases.chat_history import GetChatHistoryUseCase, GetChatSessionUseCase
 from src.use_cases.vision_stream import VisionStreamUseCase
 
@@ -27,7 +28,6 @@ vision_adapter: VisionAdapter = None
 def initialize_dependencies(
     database_url: str,
     redis_url: str,
-    qdrant_url: str,
     llm_api_key: str = None,
     stt_api_key: str = None,
 ):
@@ -39,7 +39,7 @@ def initialize_dependencies(
     
     db_connection = DatabaseConnection(database_url)
     llm_adapter = LLMAdapter(api_key=llm_api_key)
-    rag_adapter = QdrantRAGAdapter(url=qdrant_url)
+    rag_adapter = QdrantRAGAdapter()
     stt_adapter = STTAdapter(api_key=stt_api_key)
     cache_adapter = RedisCacheAdapter(url=redis_url)
     vision_adapter = VisionAdapter()
@@ -88,53 +88,33 @@ def get_vision_adapter() -> VisionAdapter:
 
 # Use case factories
 async def get_chat_text_use_case(
-    session: AsyncSession = None,
+    session: AsyncSession = Depends(get_db_session)
 ) -> ChatTextUseCase:
     """Get chat text use case."""
-    if session is None:
-        async for session in get_db_session():
-            repository = ChatRepository(session)
-            return ChatTextUseCase(repository, llm_adapter, rag_adapter)
-    
     repository = ChatRepository(session)
     return ChatTextUseCase(repository, llm_adapter, rag_adapter)
 
 
-async def get_chat_audio_use_case(
-    session: AsyncSession = None,
-) -> ChatAudioUseCase:
-    """Get chat audio use case."""
-    if session is None:
-        async for session in get_db_session():
-            repository = ChatRepository(session)
-            return ChatAudioUseCase(repository, llm_adapter, stt_adapter)
-    
+async def get_chat_speech_use_case(
+    session: AsyncSession = Depends(get_db_session)
+) -> ChatSpeechUseCase:
+    """Get chat speech use case."""
     repository = ChatRepository(session)
-    return ChatAudioUseCase(repository, llm_adapter, stt_adapter)
+    return ChatSpeechUseCase(repository, llm_adapter, stt_adapter)
 
 
 async def get_history_use_case(
-    session: AsyncSession = None,
+    session: AsyncSession = Depends(get_db_session)
 ) -> GetChatHistoryUseCase:
     """Get chat history use case."""
-    if session is None:
-        async for session in get_db_session():
-            repository = ChatRepository(session)
-            return GetChatHistoryUseCase(repository)
-    
     repository = ChatRepository(session)
     return GetChatHistoryUseCase(repository)
 
 
 async def get_session_use_case(
-    session: AsyncSession = None,
+    session: AsyncSession = Depends(get_db_session)
 ) -> GetChatSessionUseCase:
     """Get chat session use case."""
-    if session is None:
-        async for session in get_db_session():
-            repository = ChatRepository(session)
-            return GetChatSessionUseCase(repository)
-    
     repository = ChatRepository(session)
     return GetChatSessionUseCase(repository)
 

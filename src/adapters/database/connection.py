@@ -50,8 +50,6 @@ class DatabaseConnection:
             except Exception:
                 await session.rollback()
                 raise
-            finally:
-                await session.close()
     
     async def close(self):
         """Close database connection."""

@@ -1,7 +1,7 @@
 """Text-to-Speech adapter implementation template."""
 import base64
 
-from src.ports.audio import ITTSAdapter
+from src.ports.speech import ITTSAdapter
 
 
 class TTSAdapter(ITTSAdapter):
@@ -18,13 +18,13 @@ class TTSAdapter(ITTSAdapter):
         # self.client = TTSClient(api_key=api_key)
     
     async def synthesize(self, text: str) -> str:
-        """Synthesize text to speech.
+        """Synthesize text to speech audio.
         
         Args:
             text: Text to synthesize
             
         Returns:
-            str: Base64-encoded audio data
+            str: Base64-encoded speech audio data
         """
         # TODO: Implement text-to-speech synthesis
         # 1. Call TTS service

@@ -20,11 +20,8 @@ async def lifespan(app: FastAPI):
     
     # Initialize dependencies
     dependencies.initialize_dependencies(
-        database_url=settings.database_url,
-        redis_url=settings.redis_url,
-        qdrant_url=settings.qdrant_url,
-        llm_api_key=settings.llm_api_key,
-        stt_api_key=settings.stt_api_key,
+      database_url=settings.database_url,
+      redis_url=settings.redis_url,
     )
     
     # Initialize database tables (optional - use alembic in production)
@@ -62,7 +59,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=[settings.cors_origins],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,7 +68,6 @@ app.add_middleware(
 # Include routers
 app.include_router(chat.router)
 app.include_router(vision.router)
-
 
 # Health check
 @app.get("/health")
@@ -92,12 +88,3 @@ async def root():
         "version": settings.app_version,
         "docs": "/docs",
     }
-
-
-# Fix dependency injection in chat router
-# Override the placeholder dependencies with actual implementations
-chat.get_chat_text_use_case = dependencies.get_chat_text_use_case
-chat.get_chat_audio_use_case = dependencies.get_chat_audio_use_case
-chat.get_history_use_case = dependencies.get_history_use_case
-chat.get_session_use_case = dependencies.get_session_use_case
-

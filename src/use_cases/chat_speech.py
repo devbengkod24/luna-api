@@ -1,15 +1,15 @@
-"""Chat audio use case."""
+"""Chat speech use case."""
 import uuid
 from typing import AsyncGenerator, Optional
 
 from src.ports.repository import IChatRepository
 from src.ports.llm import ILLMAdapter
-from src.ports.audio import ISTTAdapter
+from src.ports.speech import ISTTAdapter
 from src.domain.entities.context import UserContext
 
 
-class ChatAudioUseCase:
-    """Use case for audio-based chat with streaming response."""
+class ChatSpeechUseCase:
+    """Use case for speech-based chat with streaming response."""
     
     def __init__(
         self,
@@ -22,7 +22,7 @@ class ChatAudioUseCase:
         Args:
             chat_repository: Repository for chat persistence
             llm_adapter: LLM adapter for response generation
-            stt_adapter: STT adapter for audio transcription
+            stt_adapter: STT adapter for speech transcription
         """
         self.chat_repository = chat_repository
         self.llm_adapter = llm_adapter
@@ -31,22 +31,22 @@ class ChatAudioUseCase:
     async def execute(
         self,
         session_uuid: Optional[str],
-        audio_base64: str,
+        speech_base64: str,
         context: UserContext,
     ) -> AsyncGenerator[dict, None]:
-        """Execute chat audio use case with streaming.
+        """Execute chat speech use case with streaming.
         
         Args:
             session_uuid: Optional session UUID (if None, create new session)
-            audio_base64: Base64-encoded audio data
+            speech_base64: Base64-encoded speech audio data
             context: User context (emotion, name)
             
         Yields:
             dict: Streaming events (log, token, done)
         """
-        # Step 1: Transcribe audio
-        yield {"type": "log", "content": "Mentranskripsi audio..."}
-        transcript = await self.stt_adapter.transcribe(audio_base64)
+        # Step 1: Transcribe speech
+        yield {"type": "log", "content": "Mentranskripsi speech..."}
+        transcript = await self.stt_adapter.transcribe(speech_base64)
         yield {"type": "log", "content": f"Transkrip: '{transcript}'"}
         
         # Step 2: Get or create session
