@@ -64,6 +64,17 @@ class Settings(BaseSettings):
     llm_model: str = "Supa-AI/llama3-8b-cpt-sahabatai-v1-instruct:q3_k_s"
     embedding_model: str = "bge-m3:latest"
     
+    # Ollama
+    ollama_host: str = "ollama"
+    ollama_port: int = 11434
+    
+    # Face Recognition (InsightFace)
+    enable_face_recognition: bool = True
+    face_recognition_model: str = "buffalo_sc"  # Uses SCRFD detector + ArcFace recognition
+    face_recognition_ctx_id: int = -1  # -1 for CPU, 0+ for GPU
+    face_detection_size: int = 320  # Detection size (320 faster, 640 more accurate)
+    face_similarity_threshold: float = 0.5  # Cosine similarity threshold (0.4-0.6 recommended)
+
     # CORS
     cors_origins: str = "*"
 

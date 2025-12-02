@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
 from src.drivers.rest import dependencies
-from src.drivers.rest.routers import chat
+from src.drivers.rest.routers import chat, face
 from src.drivers.realtime.routers import vision
 
 
@@ -20,15 +20,19 @@ async def lifespan(app: FastAPI):
     
     # Initialize dependencies
     dependencies.initialize_dependencies(
-      database_url=settings.database_url,
-      redis_url=settings.redis_url,
+        database_url=settings.database_url,
+        redis_url=settings.redis_url,
+        enable_face_recognition=settings.enable_face_recognition,
     )
     
     # Initialize database tables (optional - use alembic in production)
     # await dependencies.db_connection.create_tables()
     
-    # Initialize Qdrant collection
+    # Initialize Qdrant collections
     await dependencies.rag_adapter.initialize()
+    
+    # Initialize face store collection
+    await dependencies.initialize_face_store()
     
     # Initialize vision use case for WebSocket
     vision_use_case = dependencies.get_vision_stream_use_case()
@@ -67,6 +71,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(chat.router)
+app.include_router(face.router)
 app.include_router(vision.router)
 
 # Health check

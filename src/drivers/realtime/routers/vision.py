@@ -18,6 +18,16 @@ def set_vision_use_case(use_case: VisionStreamUseCase):
     vision_use_case = use_case
 
 
+async def safe_send_json(websocket: WebSocket, data: dict):
+    """Safely send JSON to WebSocket, handling disconnects gracefully."""
+    try:
+        await websocket.send_json(data)
+    except (WebSocketDisconnect, RuntimeError) as e:
+        # Client already disconnected, silently ignore
+        print(f"Cannot send message, client disconnected: {e}")
+        raise WebSocketDisconnect()
+
+
 @router.websocket("/stream")
 async def vision_stream(websocket: WebSocket):
     """WebSocket endpoint for real-time vision analysis.
@@ -46,7 +56,7 @@ async def vision_stream(websocket: WebSocket):
                     frame_base64 = data.get("data")
                     
                     if not frame_base64:
-                        await websocket.send_json({
+                        await safe_send_json(websocket, {
                             "event": "error",
                             "message": "Missing frame data",
                         })
@@ -58,13 +68,13 @@ async def vision_stream(websocket: WebSocket):
                         
                         if result:
                             # Send result back to client with new format
-                            await websocket.send_json({
+                            await safe_send_json(websocket, {
                                 "event": "vision_update",
                                 "payload": result.to_dict(),
                             })
                         else:
                             # No face detected
-                            await websocket.send_json({
+                            await safe_send_json(websocket, {
                                 "event": "vision_update",
                                 "payload": {
                                     "faces": [],
@@ -72,27 +82,30 @@ async def vision_stream(websocket: WebSocket):
                                 },
                             })
                     else:
-                        await websocket.send_json({
+                        await safe_send_json(websocket, {
                             "event": "error",
                             "message": "Vision service not initialized",
                         })
                 else:
-                    await websocket.send_json({
+                    await safe_send_json(websocket, {
                         "event": "error",
                         "message": f"Unknown event: {data.get('event')}",
                     })
             
             except json.JSONDecodeError:
-                await websocket.send_json({
+                await safe_send_json(websocket, {
                     "event": "error",
                     "message": "Invalid JSON",
                 })
+            except WebSocketDisconnect:
+                # Re-raise to be caught by outer except
+                raise
             except Exception as e:
-                await websocket.send_json({
+                print(f"Error processing frame: {e}")
+                await safe_send_json(websocket, {
                     "event": "error",
                     "message": str(e),
                 })
     
     except WebSocketDisconnect:
         print("Client disconnected from vision stream")
-

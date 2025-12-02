@@ -5,6 +5,7 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    g++ \
     gcc \
     postgresql-client \
     curl \

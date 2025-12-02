@@ -21,5 +21,17 @@ redis==7.1.0
 python-socketio==5.15.0
 sse-starlette==3.0.3
 
+# LLM & Agent
+langchain==1.1.0
+langchain-core==1.1.0
+langchain-ollama==1.0.0
+langgraph==1.0.4
+
+# Face Recognition
+insightface==0.7.3
+opencv-python-headless==4.12.0.88
+onnxruntime==1.23.2
+numpy>=1.26.0
+
 # Utils
 python-dotenv==1.2.1
