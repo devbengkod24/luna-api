@@ -1,5 +1,7 @@
 """Application configuration."""
+
 import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,7 +36,7 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
-    
+
     @property
     def database_url_sync(self) -> str:
         """Build sync database URL for migrations."""
@@ -52,32 +54,38 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         """Build Redis URL."""
         if self.redis_password:
-            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
+            return (
+                f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
+            )
         return f"redis://{self.redis_host}:{self.redis_port}/0"
 
     qdrant_host: str
     qdrant_grpc_port: int = 6334
     qdrant_api_key: str
     qdrant_collection_name: str = "vsa_collection"
-    
+
     # LLM
-    llm_model: str = "Supa-AI/llama3-8b-cpt-sahabatai-v1-instruct:q3_k_s"
+    llm_model: str = "csalab/sahabatai1:llama3_base_Q4_K_M"
     embedding_model: str = "bge-m3:latest"
-    
+
     # Ollama
     ollama_host: str = "ollama"
     ollama_port: int = 11434
-    
+
     # Face Recognition (InsightFace)
     enable_face_recognition: bool = True
-    face_recognition_model: str = "buffalo_sc"  # Uses SCRFD detector + ArcFace recognition
+    face_recognition_model: str = (
+        "buffalo_sc"  # Uses SCRFD detector + ArcFace recognition
+    )
     face_recognition_ctx_id: int = -1  # -1 for CPU, 0+ for GPU
     face_detection_size: int = 320  # Detection size (320 faster, 640 more accurate)
-    face_similarity_threshold: float = 0.5  # Cosine similarity threshold (0.4-0.6 recommended)
+    face_similarity_threshold: float = (
+        0.5  # Cosine similarity threshold (0.4-0.6 recommended)
+    )
 
     # CORS
     cors_origins: str = "*"
 
+
 # Global settings instance
 settings = Settings()
-

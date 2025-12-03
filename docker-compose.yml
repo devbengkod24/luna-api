@@ -9,17 +9,20 @@ services:
       - ollama_models:/root/.ollama
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
-      # OLLAMA_MODEL: ${LLM_MODEL}
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "all"
+      OLLAMA_NUM_GPU: 1
+      OLLAMA_GPU_OVERHEAD: 0
     # entrypoint: ["/bin/sh", "-c"]
     # command:
     #   - |
     #     # Start Ollama server in background
     #     ollama serve &
-        
+
     #     # Wait for server to be ready
     #     echo "Waiting for Ollama server to start..."
     #     sleep 10
-        
+
     #     # Pull model if specified (di model-server karena ini tempat model disimpan)
     #     if [ -n "$$OLLAMA_MODEL" ]; then
     #       echo "Pulling model: $$OLLAMA_MODEL"
@@ -28,9 +31,19 @@ services:
     #     else
     #       echo "No model specified, skipping pull"
     #     fi
-        
+
     #     # Keep container running
     #     wait
+    runtime: nvidia
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
@@ -54,7 +67,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
+      test:
+        ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -74,7 +88,8 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "incr", "ping"]
+      test:
+        ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "incr", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -111,7 +126,7 @@ services:
       # Application
       APP_NAME: ${APP_NAME}
       APP_VERSION: ${APP_VERSION}
-      
+
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -120,7 +135,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      
+
       # PostgreSQL
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -133,22 +148,36 @@ services:
       QDRANT_GRPC_PORT: 6334
       QDRANT_API_KEY: ${QDRANT_API_KEY}
       QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME}
-      
+
       # Ollama
       OLLAMA_HOST: ollama
       OLLAMA_PORT: 11434
-      
+
       # Face Recognition
       ENABLE_FACE_RECOGNITION: ${ENABLE_FACE_RECOGNITION}
       FACE_RECOGNITION_MODEL: ${FACE_RECOGNITION_MODEL}
       FACE_RECOGNITION_CTX_ID: ${FACE_RECOGNITION_CTX_ID}
       FACE_SIMILARITY_THRESHOLD: ${FACE_SIMILARITY_THRESHOLD}
 
+      # CUDA_VISIBLE_DEVICES: "0"
+      # NVIDIA_VISIBLE_DEVICES: "all"
+      # NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+
     volumes:
       - ./src:/app/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       # - .:/app
+
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    # count: 1
+    # capabilities: [gpu]
+    # device_ids: ["1"]
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -178,4 +207,3 @@ volumes:
 networks:
   fastapi:
     driver: bridge
-
