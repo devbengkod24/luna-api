@@ -14,7 +14,7 @@ from src.ports.vision import IFaceRecognitionAdapter
 from src.domain.entities.vision import DetectedFace, BoundingBox
 
 
-class InsightFaceAdapter(IFaceRecognitionAdapter):
+class FaceRecognitionAdapter(IFaceRecognitionAdapter):
     """Face recognition adapter using InsightFace with SCRFD + ArcFace."""
     
     def __init__(
@@ -49,7 +49,7 @@ class InsightFaceAdapter(IFaceRecognitionAdapter):
         self.app = FaceAnalysis(
             name=self.model_name,
             providers=providers,
-            allowed_modules=["detection", "recognition"],  # Only load needed modules
+            allowed_modules=["detection", "recognition"],
         )
         
         # Prepare model with detection size
@@ -77,15 +77,36 @@ class InsightFaceAdapter(IFaceRecognitionAdapter):
         except Exception as e:
             print(f"Error decoding image: {e}")
             return None
+
+    def _crop_face_from_image(
+        self, img: np.ndarray, box: BoundingBox
+    ) -> Optional[bytes]:
+        """Crop face from already decoded image (internal helper)."""
+        # Add padding
+        padding_x = int(box.width * 0.1)
+        padding_y = int(box.height * 0.1)
+        
+        h, w = img.shape[:2]
+        x1 = max(0, box.x - padding_x)
+        y1 = max(0, box.y - padding_y)
+        x2 = min(w, box.x + box.width + padding_x)
+        y2 = min(h, box.y + box.height + padding_y)
+        
+        # Crop
+        face_img = img[y1:y2, x1:x2]
+        
+        # Encode to JPEG
+        _, buffer = cv2.imencode(".jpg", face_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        return buffer.tobytes()
     
-    def detect_faces(self, image_bytes: bytes) -> List[DetectedFace]:
+    def detect_faces(self, image_bytes: bytes, include_crops: bool = False) -> List[DetectedFace]:
         """Detect all faces in an image and extract embeddings.
         
         Uses SCRFD for fast detection and ArcFace for embedding extraction.
         
         Args:
             image_bytes: Raw image bytes (JPEG/PNG)
-            
+            include_crops: Whether to include cropped face images in the result
         Returns:
             List[DetectedFace]: List of detected faces with embeddings
         """
@@ -97,22 +118,26 @@ class InsightFaceAdapter(IFaceRecognitionAdapter):
         faces = self.app.get(img)
         
         results = []
-        for face in faces:
-            # Get bounding box (bbox is [x1, y1, x2, y2])
+        for idx, face in enumerate(faces):
             bbox = face.bbox.astype(int)
-            x, y = int(bbox[0]), int(bbox[1])
-            w, h = int(bbox[2] - bbox[0]), int(bbox[3] - bbox[1])
+            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
             
-            # Get ArcFace embedding (512-dimensional vector)
+            box = BoundingBox.from_xyxy(x1, y1, x2, y2)
+            
             embedding = face.embedding.tolist() if face.embedding is not None else []
             
-            # Get detection confidence score
             confidence = float(face.det_score) if hasattr(face, 'det_score') else 0.0
             
+            crop_bytes = None
+            if include_crops:
+                crop_bytes = self._crop_face_from_image(img, box)
+            
             results.append(DetectedFace(
-                box=BoundingBox(x=x, y=y, width=w, height=h),
+                bbox=box,
                 embedding=embedding,
                 confidence=confidence,
+                crop_bytes=crop_bytes,
+                detection_index=idx
             ))
         
         return results
@@ -136,7 +161,7 @@ class InsightFaceAdapter(IFaceRecognitionAdapter):
         # Return the largest face's embedding (most likely the main subject)
         if len(faces) > 1:
             faces.sort(
-                key=lambda f: f.box.width * f.box.height,
+                key=lambda f: f.bbox.width * f.bbox.height,
                 reverse=True,
             )
         

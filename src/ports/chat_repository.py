@@ -4,7 +4,6 @@ from typing import List, Optional
 
 from src.domain.entities.chat import ChatSessionEntity, MessageEntity
 
-
 class IChatRepository(ABC):
     """Interface for chat repository."""
     

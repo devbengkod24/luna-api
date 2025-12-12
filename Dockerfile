@@ -24,5 +24,5 @@ COPY . .
 EXPOSE 8000
 
 # Run the application
-CMD ["uvicorn", "src.drivers.rest.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.drivers.main:app", "--host", "0.0.0.0", "--port", "8000"]
 

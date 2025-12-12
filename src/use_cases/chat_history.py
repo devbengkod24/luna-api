@@ -1,7 +1,7 @@
 """Chat history use cases."""
 from typing import List, Optional
 
-from src.ports.repository import IChatRepository
+from src.ports.chat_repository import IChatRepository
 from src.domain.entities.chat import ChatSessionEntity
 
 

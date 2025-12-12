@@ -1,41 +1,23 @@
 """Vision port interfaces."""
 from abc import ABC, abstractmethod
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 from src.domain.entities.vision import (
-    VisionResult,
     DetectedFace,
     FaceData,
-    FaceRegistrationResult,
+    DetectedEmotion,
 )
-
-
-class IVisionAdapter(ABC):
-    """Interface for vision adapter (emotion detection + face recognition)."""
-    
-    @abstractmethod
-    async def analyze_frame(self, frame_base64: str) -> Optional[VisionResult]:
-        """Analyze a video frame for emotion and face recognition.
-        
-        Args:
-            frame_base64: Base64-encoded JPEG frame
-            
-        Returns:
-            Optional[VisionResult]: Analysis result or None if no face detected
-        """
-        pass
-
 
 class IFaceRecognitionAdapter(ABC):
     """Interface for face recognition adapter using InsightFace."""
     
     @abstractmethod
-    def detect_faces(self, image_bytes: bytes) -> List[DetectedFace]:
+    def detect_faces(self, image_bytes: bytes, include_crops: bool = False) -> List[DetectedFace]:
         """Detect all faces in an image and extract embeddings.
         
         Args:
             image_bytes: Raw image bytes (JPEG/PNG)
-            
+            include_crops: Whether to include cropped face images in the result
         Returns:
             List[DetectedFace]: List of detected faces with embeddings
         """
@@ -137,3 +119,50 @@ class IFaceVectorStore(ABC):
         """
         pass
 
+class ITrackerAdapter(ABC):
+    """Interface for object/person tracking across frames."""
+    
+    @abstractmethod
+    def track(self, detections: List[DetectedFace], frame_id: int) -> List[Dict]:
+        """Update tracker with new detections.
+        
+        Args:
+            detections: List of detected faces in current frame
+            frame_id: Current frame number
+            
+        Returns:
+            List[Dict]: Tracked objects with track_id, box, confidence, etc.
+            Format: [
+                {
+                    "track_id": int,
+                    "box": BoundingBox,
+                    "confidence": float,
+                    "embedding": List[float],  # Optional
+                    "age": int,  # Frames since first detection
+                }
+            ]
+        """
+        pass
+    
+    @abstractmethod
+    def reset(self):
+        """Reset tracker state (e.g., new video stream)."""
+        pass
+
+class IEmotionDetectionAdapter(ABC):
+    """Interface for emotion detection."""
+    
+    @abstractmethod
+    def detect_emotion(
+        self, face_crop_bytes: bytes,
+    ) -> DetectedEmotion:
+        """Detect emotion from face region.
+        
+        Args:
+            face_crop_bytes: Cropped face image bytes
+            box: Face bounding box
+            
+        Returns:
+            Dict with "emotion" (str) and "confidence" (float)
+        """
+        pass

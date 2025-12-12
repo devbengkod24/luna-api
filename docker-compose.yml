@@ -7,12 +7,19 @@ services:
       - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - capabilities: [gpu]
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
-      NVIDIA_VISIBLE_DEVICES: "all"
-      NVIDIA_DRIVER_CAPABILITIES: "all"
-      OLLAMA_NUM_GPU: 1
-      OLLAMA_GPU_OVERHEAD: 0
+      # NVIDIA_VISIBLE_DEVICES: "all"
+      # NVIDIA_DRIVER_CAPABILITIES: "all"
+      # OLLAMA_NUM_GPU: 1
+      # OLLAMA_GPU_OVERHEAD: 0
+    # runtime: nvidia
+      # OLLAMA_MODEL: ${LLM_MODEL}
     # entrypoint: ["/bin/sh", "-c"]
     # command:
     #   - |
@@ -34,16 +41,16 @@ services:
 
     #     # Keep container running
     #     wait
-    runtime: nvidia
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # runtime: nvidia
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 8G
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
@@ -101,6 +108,7 @@ services:
     image: qdrant/qdrant:v1.15.5
     container_name: qdrant
     ports:
+      - "6333:6333"
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
@@ -167,6 +175,7 @@ services:
       - ./src:/app/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./storage:/app/storage
       # - .:/app
 
     # deploy:
@@ -187,7 +196,7 @@ services:
         condition: service_started
       ollama:
         condition: service_healthy
-    command: uvicorn src.drivers.rest.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn src.drivers.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - fastapi
     restart: unless-stopped

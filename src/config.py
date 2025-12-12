@@ -1,8 +1,7 @@
 """Application configuration."""
 
 import os
-
-from pydantic import Field
+from typing import ClassVar
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -59,15 +58,18 @@ class Settings(BaseSettings):
             )
         return f"redis://{self.redis_host}:{self.redis_port}/0"
 
+    # Qdrant
     qdrant_host: str
     qdrant_grpc_port: int = 6334
     qdrant_api_key: str
     qdrant_collection_name: str = "vsa_collection"
 
     # LLM
-    llm_model: str = "csalab/sahabatai1:llama3_base_Q4_K_M"
-    embedding_model: str = "bge-m3:latest"
-
+    llm_model: str = "csalab/sahabatai1:llama3_instruct_Q4_K_M"
+    embedding_model: str = "embeddinggemma:latest"
+    reranker_model: str = "jina-reranker-v3-Q4_K_M.gguf"
+    llm_temperature: float = 0.7
+    
     # Ollama
     ollama_host: str = "ollama"
     ollama_port: int = 11434
@@ -75,13 +77,31 @@ class Settings(BaseSettings):
     # Face Recognition (InsightFace)
     enable_face_recognition: bool = True
     face_recognition_model: str = (
-        "buffalo_sc"  # Uses SCRFD detector + ArcFace recognition
+        "buffalo_sc"  # SCRFD detector + ArcFace recognition
     )
-    face_recognition_ctx_id: int = -1  # -1 for CPU, 0+ for GPU
+    gpu_device: int = -1  # -1 for CPU, 0+ for GPU
     face_detection_size: int = 320  # Detection size (320 faster, 640 more accurate)
     face_similarity_threshold: float = (
         0.5  # Cosine similarity threshold (0.4-0.6 recommended)
     )
+    
+    # ByteTrack Tracker
+    tracker_max_age: int = 30  # Max frames to keep track alive without detection
+    tracker_min_hits: int = 3  # Min detections before track is confirmed
+    tracker_min_score: float = 0.4  # Min confidence to initialize track
+    
+    # Emotion Detection
+    enable_emotion_detection: bool = True
+    init_face_embedding: bool = False
+
+
+    # Storage paths
+    base_dir: ClassVar[str] = os.path.dirname(os.path.dirname(__file__))
+    media_base_dir: str = os.path.join(base_dir, "storage")
+    faces_dir: str = os.path.join(media_base_dir, "faces")
+    rag_storage_path: str = os.path.join(media_base_dir, "rag", "documents")
+    rag_metadata_path: str = os.path.join(media_base_dir, "rag", "metadata")
+    rag_docs_dir: str = os.path.join(media_base_dir, "rag", "documents")  # Deprecated, use rag_storage_path
 
     # CORS
     cors_origins: str = "*"

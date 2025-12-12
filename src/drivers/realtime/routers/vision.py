@@ -3,19 +3,20 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict, Any
 
-from src.use_cases.vision_stream import VisionStreamUseCase
+# from src.use_cases.vision_stream import VisionStreamUseCase
 
+from src.drivers import dependencies
 router = APIRouter(prefix="/v1/vision", tags=["vision"])
 
 
 # This will be injected in main.py
-vision_use_case: VisionStreamUseCase = None
+# vision_use_case: VisionStreamUseCase = None
 
 
-def set_vision_use_case(use_case: VisionStreamUseCase):
-    """Set the vision use case (called from main.py)."""
-    global vision_use_case
-    vision_use_case = use_case
+# def set_vision_use_case(use_case: VisionStreamUseCase):
+#     """Set the vision use case (called from main.py)."""
+#     global vision_use_case
+#     vision_use_case = use_case
 
 
 async def safe_send_json(websocket: WebSocket, data: dict):
@@ -37,16 +38,36 @@ async def vision_stream(websocket: WebSocket):
     - Server responds: {
         "event": "vision_update",
         "payload": {
-          "faces": [{"name": "User_ABC", "box": [x, y, w, h], "confidence": 0.95}],
-          "emotions": [{"emotion": "happy", "box": [x, y, w, h], "confidence": 0.8}]
+          "results": [
+            {
+              "name": "User_ABC",
+              "nim": "123456",
+              "emotion": "happy",
+              "box": [x, y, w, h],
+              "confidence": {"face": 0.95, "emotion": 0.8},
+              "face_id": "uuid",
+              "track_id": 1
+            }
+          ]
         }
       }
     """
     await websocket.accept()
+
+    try:
+        vision_use_case = dependencies.get_vision_stream_use_case()
+    except RuntimeError:
+        await safe_send_json(websocket, {
+            "event": "error",
+            "message": "Vision service not initialized",
+        })
+        await websocket.close()
+        return
+    
+    frame_id = 0
     
     try:
         while True:
-            # Receive message from client
             message = await websocket.receive_text()
             
             try:
@@ -61,31 +82,25 @@ async def vision_stream(websocket: WebSocket):
                             "message": "Missing frame data",
                         })
                         continue
+        
+                    results = await vision_use_case.execute(frame_base64, frame_id)
+                    frame_id += 1
                     
-                    # Process frame
-                    if vision_use_case:
-                        result = await vision_use_case.execute(frame_base64)
-                        
-                        if result:
-                            # Send result back to client with new format
-                            await safe_send_json(websocket, {
-                                "event": "vision_update",
-                                "payload": result.to_dict(),
-                            })
-                        else:
-                            # No face detected
-                            await safe_send_json(websocket, {
-                                "event": "vision_update",
-                                "payload": {
-                                    "faces": [],
-                                    "emotions": []
-                                },
-                            })
-                    else:
-                        await safe_send_json(websocket, {
-                            "event": "error",
-                            "message": "Vision service not initialized",
-                        })
+                    await safe_send_json(websocket, {
+                        "event": "vision_update",
+                        "payload": {
+                            "results": [result.to_dict() for result in results],
+                            "frame_id": frame_id - 1
+                        }
+                    })
+                
+                elif data.get("event") == "reset":
+                    frame_id = 0
+                    await safe_send_json(websocket, {
+                        "event": "reset_ack",
+                        "message": "Frame counter reset"
+                    })
+                  
                 else:
                     await safe_send_json(websocket, {
                         "event": "error",
@@ -98,10 +113,11 @@ async def vision_stream(websocket: WebSocket):
                     "message": "Invalid JSON",
                 })
             except WebSocketDisconnect:
-                # Re-raise to be caught by outer except
                 raise
             except Exception as e:
                 print(f"Error processing frame: {e}")
+                import traceback
+                traceback.print_exc()
                 await safe_send_json(websocket, {
                     "event": "error",
                     "message": str(e),

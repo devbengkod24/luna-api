@@ -1,58 +1,23 @@
 """Chat REST routers."""
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 from src.use_cases.chat_text import ChatTextUseCase
 from src.use_cases.chat_speech import ChatSpeechUseCase
 from src.use_cases.chat_history import GetChatHistoryUseCase, GetChatSessionUseCase
-from src.domain.entities.context import UserContext
-from src.drivers.rest import dependencies
+from src.domain.entities.chat import UserContext
+from src.drivers import dependencies
+from src.drivers.rest.schemas.chat import (
+    ChatTextRequest, 
+    ChatAudioRequest, 
+    ChatHistoryItem, 
+    ChatSessionDetail, 
+    MessageItem,
+    SSEEvent,
+)
 
 router = APIRouter(prefix="/v1/chat", tags=["chat"])
 
-
-# Request/Response models
-class ChatTextRequest(BaseModel):
-    """Request model for text chat."""
-    uuid: Optional[str] = None
-    prompt: str
-    context: dict  # {"emotion": "happy", "name": "User_ABC"}
-
-
-class ChatAudioRequest(BaseModel):
-    """Request model for audio chat."""
-    uuid: Optional[str] = None
-    audio: str  # Base64-encoded audio
-    context: dict  # {"emotion": "happy", "name": "User_ABC"}
-
-
-class ChatHistoryItem(BaseModel):
-    """Response model for chat history item."""
-    id: int
-    uuid: str
-    title: str
-    created_at: str
-    updated_at: str
-
-
-class MessageItem(BaseModel):
-    """Response model for message."""
-    role: str
-    content: str
-    context: Optional[dict] = None
-
-
-class ChatSessionDetail(BaseModel):
-    """Response model for chat session detail."""
-    id: int
-    uuid: str
-    title: str
-    messages: list[MessageItem]
-
-
-# Routes
 @router.post("/text")
 async def chat_text(
     request: ChatTextRequest,
@@ -61,20 +26,28 @@ async def chat_text(
     """Handle text-based chat with streaming response.
     
     Returns Server-Sent Events (SSE) stream.
+    
+    Response format:
+    - Log events: {"type": "log", "content": "..."}
+    - Token events: {"type": "token", "content": "..."}
+    - Done events: {"type": "done", "finish_reason": "stop"}
+    - Error events: {"type": "error", "content": "..."}
     """
     context = UserContext(
-        emotion=request.context.get("emotion", "neutral"),
-        name=request.context.get("name"),
+        emotion=request.context.emotion,
+        name=request.context.name,
+        nim=request.context.nim,
     )
     
     async def event_generator():
         """Generate SSE events."""
         try:
             async for event in use_case.execute(request.uuid, request.prompt, context):
-                # Format as SSE
-                yield f"data: {event}\n\n"
+                yield SSEEvent(**event).to_sse()
+                    
         except Exception as e:
-            yield f"data: {{'type': 'error', 'content': '{str(e)}'}}\n\n"
+            yield SSEEvent(type="error", content=f"Error: {str(e)}").to_sse()
+            yield SSEEvent(type="done", finish_reason="stop").to_sse()
     
     return StreamingResponse(
         event_generator(),
@@ -93,21 +66,30 @@ async def chat_audio(
 ):
     """Handle audio-based chat with streaming response.
     
-    Returns Server-Sent Events (SSE) stream.
+    Returns Server-Sent Events (SSE) stream in OpenAI-compatible format.
+    
+    Response format:
+    - Log events: {"type": "log", "content": "..."}
+    - Transcript events: {"type": "transcript", "content": "..."}
+    - Token events: {"type": "token", "content": "..."}
+    - Done events: {"type": "done", "finish_reason": "stop"}
+    - Error events: {"type": "error", "content": "..."}
     """
     context = UserContext(
-        emotion=request.context.get("emotion", "neutral"),
-        name=request.context.get("name"),
+        emotion=request.context.emotion,
+        name=request.context.name,
+        nim=request.context.nim,
     )
     
     async def event_generator():
         """Generate SSE events."""
         try:
             async for event in use_case.execute(request.uuid, request.audio, context):
-                # Format as SSE
-                yield f"data: {event}\n\n"
+                yield SSEEvent(**event).to_sse()
+                    
         except Exception as e:
-            yield f"data: {{'type': 'error', 'content': '{str(e)}'}}\n\n"
+            yield SSEEvent(type="error", content=f"Error: {str(e)}").to_sse()
+            yield SSEEvent(type="done", finish_reason="stop").to_sse()
     
     return StreamingResponse(
         event_generator(),

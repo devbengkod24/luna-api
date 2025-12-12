@@ -8,7 +8,7 @@ install: ## Install dependencies
 	pip install -r requirements.txt
 
 dev: ## Run development server
-	uvicorn src.drivers.rest.main:app --reload --host 0.0.0.0 --port 8000
+	uvicorn src.drivers.main:app --reload --host 0.0.0.0 --port 8000
 
 migrate: ## Run database migrations
 	alembic upgrade head

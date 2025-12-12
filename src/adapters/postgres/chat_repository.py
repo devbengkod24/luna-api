@@ -4,11 +4,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.adapters.database.models import ChatSession, Message
+from src.adapters.postgres.models import ChatSession, Message
 from src.domain.entities.chat import ChatSessionEntity, MessageEntity
+from src.ports.chat_repository import IChatRepository
 
 
-class ChatRepository:
+class ChatRepository(IChatRepository):
     """Repository for chat-related database operations."""
     
     def __init__(self, session: AsyncSession):

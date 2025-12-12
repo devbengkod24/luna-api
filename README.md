@@ -273,23 +273,40 @@ http://localhost:8000
 ```
 
 **Response**: `Content-Type: text/event-stream`
+
+Format mengikuti standar OpenAI-compatible streaming:
+
 ```
-data: {"type": "log", "content": "Menganalisis konteks..."}\n\n
-data: {"type": "token", "content": "Tentu,"}\n\n
-data: {"type": "token", "content": " Saya"}\n\n
-data: {"type": "token", "content": " melihat..."}\n\n
-data: {"event": "text_complete"}\n\n
-data: {"type": "log", "content": "Generating audio..."}\n\n
-data: {"type": "audio", "data": "base64-encoded-audio-untuk-Tentu-ini-audionya"}\n\n
-data: {"type": "done", "session_uuid": "a1b2c3d4-..."}\n\n
+data: {"type": "log", "content": "Membuat sesi baru..."}
+
+data: {"type": "log", "content": "Sesi dibuat: Diskusi tentang..."}
+
+data: {"type": "log", "content": "Menganalisis konteks..."}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Tentu,"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "choices": [{"index": 0, "delta": {"content": " saya"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "choices": [{"index": 0, "delta": {"content": " akan"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "choices": [{"index": 0, "delta": {"content": " membantu..."}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"type": "metadata", "session_uuid": "a1b2c3d4-5678-90ab-cdef-1234567890ab"}
+
+data: [DONE]
+
 ```
 
 **Event Types**:
-- `log`: Status/progress messages
-- `token`: Streaming LLM token
-- `done`: Completion with session UUID
-- `audio`: Audio Chunk TTS
-- `error`: Error message
+- **Log events**: `{"type": "log", "content": "..."}` - Status/progress messages
+- **Chat chunks**: `{"object": "chat.chunk", "choices": [...]}` - Streaming LLM tokens (OpenAI-compatible)
+  - First chunk includes `"role": "assistant"` in delta
+  - Subsequent chunks only have `"content"` in delta
+  - Final chunk has empty delta with `"finish_reason": "stop"`
+- **Metadata**: `{"type": "metadata", "session_uuid": "..."}` - Session information
+- **End marker**: `[DONE]` - Indicates stream completion
 
 ---
 
@@ -312,12 +329,34 @@ data: {"type": "done", "session_uuid": "a1b2c3d4-..."}\n\n
 ```
 
 **Response**: `Content-Type: text/event-stream`
+
 ```
-data: {"type": "log", "content": "Mentranskripsi audio..."}\n\n
-data: {"type": "log", "content": "Transkrip: 'Apa pendapatmu...'"}\n\n
-data: {"type": "token", "content": "Tentu,"}\n\n
-data: {"type": "done", "session_uuid": "e5f6g7h8-..."}\n\n
+data: {"type": "log", "content": "Mentranskripsi speech..."}
+
+data: {"type": "metadata", "transcript": "Apa pendapatmu tentang cuaca hari ini?"}
+
+data: {"type": "log", "content": "Menganalisis konteks..."}
+
+data: {"id": "chatcmpl-def456", "object": "chat.chunk", "created": 1701234567, "model": "vsa-assistant", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Cuaca"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-def456", "object": "chat.chunk", "created": 1701234567, "model": "vsa-assistant", "choices": [{"index": 0, "delta": {"content": " hari"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-def456", "object": "chat.chunk", "created": 1701234567, "model": "vsa-assistant", "choices": [{"index": 0, "delta": {"content": " ini..."}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-def456", "object": "chat.chunk", "created": 1701234567, "model": "vsa-assistant", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"type": "metadata", "session_uuid": "e5f6g7h8-9012-34ij-klmn-5678901234op"}
+
+data: [DONE]
+
 ```
+
+**Event Types**:
+- **Log events**: Status messages during processing
+- **Metadata (transcript)**: `{"type": "metadata", "transcript": "..."}` - Transcribed text from audio
+- **Chat chunks**: OpenAI-compatible streaming tokens
+- **Metadata (session)**: Session UUID after completion
+- **End marker**: `[DONE]`
 
 ---
 
@@ -405,6 +444,17 @@ data: {"type": "done", "session_uuid": "e5f6g7h8-..."}\n\n
 }
 ```
 
+## 📖 Documentation
+
+### Detailed Guides
+
+- **[Quick Start Guide](docs/QUICKSTART.md)** - Setup dan running aplikasi
+- **[SSE API Format](docs/SSE_API_FORMAT.md)** - Format lengkap untuk Server-Sent Events streaming
+- **[Database Schema](docs/DATABASE_SCHEMA.md)** - Database design dan relationships
+- **[RAG Setup](docs/RAG_SETUP.md)** - Setup Retrieval-Augmented Generation
+
+---
+
 ## 🧪 Development
 
 ### Install Dependencies Locally
@@ -419,7 +469,7 @@ pip install -r requirements.txt
 
 ### Run Development Server
 ```bash
-uvicorn src.drivers.rest.main:app --reload
+uvicorn src.drivers.main:app --reload
 ```
 
 ### Create Database Migration

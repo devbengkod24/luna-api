@@ -131,7 +131,7 @@ alembic upgrade head
 
 9. **Start development server**
 ```bash
-uvicorn src.drivers.rest.main:app --reload
+uvicorn src.drivers.main:app --reload
 ```
 
 10. **Akses aplikasi**
@@ -151,7 +151,7 @@ curl http://localhost:8000/health
 ### 2. Chat Text (dengan curl)
 
 ```bash
-curl -X POST http://localhost:8000/v1/chat/text \
+curl -N -X POST http://localhost:8000/v1/chat/text \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "Halo, apa kabar?",
@@ -162,13 +162,126 @@ curl -X POST http://localhost:8000/v1/chat/text \
   }'
 ```
 
+**Response** (Server-Sent Events):
+```
+data: {"type": "log", "content": "Membuat sesi baru..."}
+
+data: {"type": "log", "content": "Sesi dibuat: Percakapan dengan Test User"}
+
+data: {"type": "log", "content": "Menganalisis konteks..."}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "model": "vsa-assistant", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Halo"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "model": "vsa-assistant", "choices": [{"index": 0, "delta": {"content": " Test"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "model": "vsa-assistant", "choices": [{"index": 0, "delta": {"content": " User!"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-abc123", "object": "chat.chunk", "created": 1701234567, "model": "vsa-assistant", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"type": "metadata", "session_uuid": "a1b2c3d4-5678-90ab-cdef-1234567890ab"}
+
+data: [DONE]
+
+```
+
+**Note**: 
+- Flag `-N` / `--no-buffer` diperlukan untuk streaming SSE
+- Response menggunakan format OpenAI-compatible
+- Setiap chunk adalah JSON terpisah dengan prefix `data: `
+- Stream diakhiri dengan `data: [DONE]`
+
 ### 3. Get Chat History
 
 ```bash
 curl http://localhost:8000/v1/chat/history
 ```
 
-### 4. WebSocket Vision (dengan Python)
+**Response**:
+```json
+[
+  {
+    "id": 1,
+    "uuid": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "title": "Percakapan dengan Test User",
+    "created_at": "2025-12-05T10:30:00Z",
+    "updated_at": "2025-12-05T10:35:00Z"
+  }
+]
+```
+
+### 4. Chat Text SSE (dengan Python)
+
+```python
+import requests
+import json
+
+def test_chat_stream():
+    url = "http://localhost:8000/v1/chat/text"
+    
+    payload = {
+        "prompt": "Ceritakan tentang cuaca hari ini",
+        "context": {
+            "emotion": "happy",
+            "name": "Test User"
+        }
+    }
+    
+    # Stream response
+    response = requests.post(url, json=payload, stream=True)
+    
+    for line in response.iter_lines():
+        if line:
+            # Decode line
+            line_str = line.decode('utf-8')
+            
+            # Skip empty lines
+            if not line_str.strip():
+                continue
+                
+            # Parse SSE format (remove "data: " prefix)
+            if line_str.startswith("data: "):
+                data_str = line_str[6:]  # Remove "data: "
+                
+                # Check for [DONE] marker
+                if data_str == "[DONE]":
+                    print("\nStream selesai!")
+                    break
+                
+                # Parse JSON
+                try:
+                    data = json.loads(data_str)
+                    
+                    # Handle different event types
+                    if data.get("type") == "log":
+                        print(f"[LOG] {data['content']}")
+                    
+                    elif data.get("type") == "metadata":
+                        if "session_uuid" in data:
+                            print(f"[SESSION] UUID: {data['session_uuid']}")
+                        if "transcript" in data:
+                            print(f"[TRANSCRIPT] {data['transcript']}")
+                    
+                    elif data.get("object") == "chat.chunk":
+                        # Extract content from choices
+                        for choice in data.get("choices", []):
+                            delta = choice.get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                print(content, end="", flush=True)
+                            
+                            # Check finish reason
+                            if choice.get("finish_reason"):
+                                print()  # New line
+                                print(f"[FINISH] {choice['finish_reason']}")
+                
+                except json.JSONDecodeError:
+                    print(f"Failed to parse: {data_str}")
+
+if __name__ == "__main__":
+    test_chat_stream()
+```
+
+### 5. WebSocket Vision (dengan Python)
 
 ```python
 import asyncio

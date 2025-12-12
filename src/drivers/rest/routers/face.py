@@ -1,108 +1,32 @@
 """Face registration REST routers."""
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from src.use_cases.face_registration import (
-    RegisterFaceUseCase,
-    RegisterBulkFacesUseCase,
+    RegisterFacesUseCase,
     GetRegisteredFacesUseCase,
     DeleteFaceUseCase,
-    BulkFaceRegistrationItem,
 )
-from src.drivers.rest import dependencies
+from src.domain.entities.vision import RegisterFaceInput
+from src.drivers import dependencies
+from src.drivers.rest.schemas.face import RegisterFaceRequest, RegisterFacesResponse, FaceResponse, SingleRegisterFaceResult
 
 router = APIRouter(prefix="/v1/face", tags=["face"])
 
-
-# Request/Response models
-class RegisterFaceRequest(BaseModel):
-    """Request model for single face registration."""
-    name: str
-    nim: str
-    image_base64: str
-    update_if_exists: bool = False
-
-
-class BulkFaceItem(BaseModel):
-    """Single item for bulk registration."""
-    name: str
-    nim: str
-    image_base64: str
-
-
-class BulkRegisterFaceRequest(BaseModel):
-    """Request model for bulk face registration."""
-    faces: List[BulkFaceItem]
-    skip_existing: bool = True
-
-
-class FaceResponse(BaseModel):
-    """Response model for face data."""
-    id: str
-    name: str
-    nim: str
-
-
-class RegisterFaceResponse(BaseModel):
-    """Response model for face registration."""
-    success: bool
-    face_id: Optional[str] = None
-    name: Optional[str] = None
-    nim: Optional[str] = None
-    message: Optional[str] = None
-
-
-class BulkRegisterFaceResponse(BaseModel):
-    """Response model for bulk face registration."""
-    total: int
-    success_count: int
-    failed_count: int
-    results: List[RegisterFaceResponse]
-
-
-# Routes
-@router.post("/register", response_model=RegisterFaceResponse)
-async def register_face(
+@router.post("/register", response_model=RegisterFacesResponse)
+async def register_faces(
     request: RegisterFaceRequest,
-    use_case: RegisterFaceUseCase = Depends(dependencies.get_register_face_use_case),
+    use_case: RegisterFacesUseCase = Depends(dependencies.get_register_faces_use_case),
 ):
-    """Register a single face.
+    """Register one or more faces.
     
-    Takes a base64-encoded image containing a face and registers it
-    with the provided name and NIM.
-    
-    The image should contain exactly one face for best results.
+    This endpoint accepts a list of faces, but you can also send just one item.
+    Each item should contain a base64-encoded image with exactly one face.
+    The skip_existing flag controls whether existing faces should be skipped (True) or updated (False).
     """
-    result = await use_case.execute(
-        name=request.name,
-        nim=request.nim,
-        image_base64=request.image_base64,
-        update_if_exists=request.update_if_exists,
-    )
-    
-    return RegisterFaceResponse(
-        success=result.success,
-        face_id=result.face_id,
-        name=result.name,
-        nim=result.nim,
-        message=result.message,
-    )
-
-
-@router.post("/register/bulk", response_model=BulkRegisterFaceResponse)
-async def register_faces_bulk(
-    request: BulkRegisterFaceRequest,
-    use_case: RegisterBulkFacesUseCase = Depends(dependencies.get_bulk_register_face_use_case),
-):
-    """Register multiple faces in bulk.
-    
-    Useful for initial setup/seeding of the face database.
-    Each item in the request should contain a base64-encoded image
-    with exactly one face.
-    """
+    # Convert schema to domain entities
     items = [
-        BulkFaceRegistrationItem(
+        RegisterFaceInput(
             name=face.name,
             nim=face.nim,
             image_base64=face.image_base64,
@@ -110,19 +34,22 @@ async def register_faces_bulk(
         for face in request.faces
     ]
     
+    # Execute use case
     results = await use_case.execute(
         faces=items,
         skip_existing=request.skip_existing,
     )
     
+    # Calculate statistics
     success_count = sum(1 for r in results if r.success)
     
-    return BulkRegisterFaceResponse(
+    # Convert domain results to schema response
+    return RegisterFacesResponse(
         total=len(results),
         success_count=success_count,
         failed_count=len(results) - success_count,
         results=[
-            RegisterFaceResponse(
+            SingleRegisterFaceResult(
                 success=r.success,
                 face_id=r.face_id,
                 name=r.name,
@@ -184,7 +111,7 @@ async def search_face_by_nim(
     
     Returns the face data if found, or 404 if not found.
     """
-    face_store = dependencies.get_face_store()
+    face_store = dependencies.face_store
     
     if not face_store:
         raise HTTPException(

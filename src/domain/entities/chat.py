@@ -2,7 +2,29 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Dict, Any
+from enum import Enum
 
+class UserRole(Enum):
+    """User role - represents the role of the user in the conversation."""
+    
+    USER = "user"
+    ASSISTANT = "assistant"
+
+@dataclass
+class UserContext:
+    """User context - stores user state for conversation."""
+    
+    emotion: str = "neutral"
+    name: Optional[str] = None
+    nim: Optional[str] = None
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "emotion": self.emotion,
+            "name": self.name,
+            "nim": self.nim,
+        }
 
 @dataclass
 class MessageEntity:
@@ -10,9 +32,9 @@ class MessageEntity:
     
     id: Optional[int]
     session_id: int
-    role: str  # 'user' or 'assistant'
+    role: UserRole
     content: str
-    context: Optional[Dict[str, Any]]
+    context: Optional[UserContext]
     created_at: Optional[datetime]
 
 

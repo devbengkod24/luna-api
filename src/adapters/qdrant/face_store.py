@@ -81,17 +81,19 @@ class QdrantFaceStore(IFaceVectorStore):
         Returns:
             Optional[Tuple[FaceData, float]]: Matching face data and score, or None
         """
-        results = await self.client.search(
+        response = await self.client.query_points(
             collection_name=self.COLLECTION_NAME,
-            query_vector=embedding,
+            query=embedding,
             limit=1,
             score_threshold=threshold,
         )
+
+        points = response.points if hasattr(response, 'points') else []
         
-        if not results:
+        if not points:
             return None
         
-        top_result = results[0]
+        top_result = points[0]
         face_data = FaceData(
             id=str(top_result.id),
             name=top_result.payload.get("name", "Unknown"),

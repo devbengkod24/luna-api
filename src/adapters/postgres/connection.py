@@ -3,20 +3,20 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
-from src.adapters.database.models import Base
+from src.adapters.postgres.models import Base
 
 
 class DatabaseConnection:
     """Manage database connection and session lifecycle."""
     
-    def __init__(self, database_url: str):
+    def __init__(self, url: str):
         """Initialize database connection.
         
         Args:
-            database_url: PostgreSQL connection string (async format: postgresql+asyncpg://...)
+            url: PostgreSQL connection string (async format: postgresql+asyncpg://...)
         """
         self.engine = create_async_engine(
-            database_url,
+            url,
             echo=False,
             poolclass=NullPool,  # Use NullPool for simpler connection management
             future=True,

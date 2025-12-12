@@ -7,7 +7,7 @@ from alembic import context
 
 # Import your models and settings
 from src.config import settings
-from src.adapters.database.models import Base
+from src.adapters.postgres.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

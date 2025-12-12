@@ -39,4 +39,3 @@ docker-compose.yml
 *.log
 .DS_Store
 README.md
-
