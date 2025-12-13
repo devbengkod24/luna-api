@@ -1,10 +1,12 @@
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 from PIL import Image
 import torch
+import numpy as np
 import io
 
 from src.ports.vision import IEmotionDetectionAdapter
 from src.domain.entities.vision import DetectedEmotion
+
 
 class EmotionDetectionAdapter(IEmotionDetectionAdapter):
     """Emotion detection adapter using HuggingFace ViT model."""
@@ -30,19 +32,17 @@ class EmotionDetectionAdapter(IEmotionDetectionAdapter):
     def _id_to_label(self, class_id: int) -> str:
         """Convert model class id to label string."""
         return self.id2label[class_id]
-
-    def detect_emotion(self, face_crop_bytes: bytes) -> DetectedEmotion:
-        """Detect emotion from face crop.
+    
+    def _predict(self, image: Image.Image) -> DetectedEmotion:
+        """Internal prediction method.
         
         Args:
-            face_crop_bytes: Cropped face image bytes (JPEG/PNG)
+            image: PIL Image in RGB format
             
         Returns:
             DetectedEmotion: Detected emotion with confidence
         """
         try:
-            image = Image.open(io.BytesIO(face_crop_bytes)).convert('RGB')
-            
             inputs = self.processor(images=image, return_tensors="pt")
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
@@ -61,4 +61,43 @@ class EmotionDetectionAdapter(IEmotionDetectionAdapter):
             
         except Exception as e:
             print(f"Error detecting emotion: {e}")
+            return DetectedEmotion(emotion="neutral", confidence=0.0)
+
+    def detect_emotion(self, face_crop_bytes: bytes) -> DetectedEmotion:
+        """Detect emotion from face crop (bytes input).
+        
+        Args:
+            face_crop_bytes: Cropped face image bytes (JPEG/PNG)
+            
+        Returns:
+            DetectedEmotion: Detected emotion with confidence
+        """
+        try:
+            image = Image.open(io.BytesIO(face_crop_bytes)).convert('RGB')
+            return self._predict(image)
+            
+        except Exception as e:
+            print(f"Error detecting emotion from bytes: {e}")
+            return DetectedEmotion(emotion="neutral", confidence=0.0)
+    
+    def detect_emotion_from_array(self, face_image: np.ndarray) -> DetectedEmotion:
+        """Detect emotion from face region (numpy array input).
+        
+        Args:
+            face_image: Face image as BGR numpy array
+            
+        Returns:
+            DetectedEmotion: Detected emotion with confidence
+        """
+        try:
+            # Convert BGR to RGB
+            rgb_image = face_image[:, :, ::-1]
+            
+            # Convert to PIL Image
+            image = Image.fromarray(rgb_image)
+            
+            return self._predict(image)
+            
+        except Exception as e:
+            print(f"Error detecting emotion from array: {e}")
             return DetectedEmotion(emotion="neutral", confidence=0.0)

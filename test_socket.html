@@ -24,7 +24,15 @@
     }
 
     results.forEach(result => {
-      const box = result.box; // [x, y, w, h]
+      // Use 'bbox' instead of 'box' (matches backend)
+      const bbox = result.bbox || result.box; // Support both for backward compatibility
+      
+      // Validate bbox exists and is an array with 4 elements
+      if (!bbox || !Array.isArray(bbox) || bbox.length !== 4) {
+        console.warn("Invalid bbox:", bbox, "in result:", result);
+        return;
+      }
+      
       const name = result.name || "Unknown";
       const emotion = result.emotion || "neutral";
       const confidence = result.confidence || {};
@@ -32,30 +40,32 @@
       // Draw bounding box
       overlayCtx.strokeStyle = "#00ff00";
       overlayCtx.lineWidth = 2;
-      overlayCtx.strokeRect(box[0], box[1], box[2], box[3]);
+      overlayCtx.strokeRect(bbox[0], bbox[1], bbox[2], bbox[3]);
       
       // Draw label background
       const labelText = `${name} (${emotion})`;
       overlayCtx.font = "14px Arial";
       const textMetrics = overlayCtx.measureText(labelText);
       const labelHeight = 20;
-      const labelY = box[1] - labelHeight;
+      const labelY = bbox[1] - labelHeight;
       
       overlayCtx.fillStyle = "rgba(0, 255, 0, 0.7)";
-      overlayCtx.fillRect(box[0], labelY, textMetrics.width + 10, labelHeight);
+      overlayCtx.fillRect(bbox[0], labelY, textMetrics.width + 10, labelHeight);
       
       // Draw label text
       overlayCtx.fillStyle = "#000000";
-      overlayCtx.fillText(labelText, box[0] + 5, box[1] - 5);
+      overlayCtx.fillText(labelText, bbox[0] + 5, bbox[1] - 5);
     });
   }
 
   ws.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
-      console.log("WS message:", data);
       
       if (data.event === "vision_update" && data.payload && data.payload.results) {
+        // Print only the payload
+        console.log("WS payload:", data.payload);
+        
         // Update overlay canvas size to match video
         overlay.width = video.videoWidth;
         overlay.height = video.videoHeight;
@@ -86,7 +96,7 @@
         };
         reader.readAsDataURL(blob);
       }, "image/jpeg", 0.8);
-    }, 1000); // kirim 1 frame per detik
+    }, 100); // kirim 1 frame per detik
   });
 </script>
 </body>

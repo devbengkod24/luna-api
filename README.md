@@ -76,7 +76,7 @@ VSA-BE-FastAPIv2/
 │   │   ├── chat_text.py        # Text chat use case
 │   │   ├── chat_speech.py      # Speech chat use case
 │   │   ├── chat_history.py     # Chat history use cases
-│   │   └── vision_stream.py    # Vision streaming use case
+│   │   └── vision.py    # Vision use case
 │   │
 │   ├── drivers/                # Driver Layer (External Interfaces)
 │   │   ├── rest/               # HTTP REST API

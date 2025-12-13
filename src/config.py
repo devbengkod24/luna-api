@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     qdrant_collection_name: str = "vsa_collection"
 
     # LLM
-    llm_model: str = "csalab/sahabatai1:llama3_instruct_Q4_K_M"
+    llm_model: str = "llama3.1:8b"
     embedding_model: str = "embeddinggemma:latest"
     reranker_model: str = "jina-reranker-v3-Q4_K_M.gguf"
     llm_temperature: float = 0.7
@@ -86,13 +86,21 @@ class Settings(BaseSettings):
     )
     
     # ByteTrack Tracker
-    tracker_max_age: int = 30  # Max frames to keep track alive without detection
+    tracker_max_age: int = 60  # Max frames to keep track alive without detection
     tracker_min_hits: int = 3  # Min detections before track is confirmed
     tracker_min_score: float = 0.4  # Min confidence to initialize track
     
     # Emotion Detection
     enable_emotion_detection: bool = True
-    init_face_embedding: bool = False
+    seed_faces: bool = False
+
+    # Rate limiting constants
+    frame_timeout_seconds: float = 5.0
+
+    # Vision
+    emotion_detection_interval: int = 5  # Frames between emotion detection
+    recognition_retry_interval: float = 2.0  # Seconds between recognition retries
+    max_recognition_attempts: int = 5  # Max attempts per track
 
 
     # Storage paths

@@ -8,14 +8,57 @@ from typing import List, Optional, Tuple
 
 import cv2
 from insightface.app import FaceAnalysis
+from skimage import transform as trans
 
 from src.config import settings
 from src.ports.vision import IFaceRecognitionAdapter
-from src.domain.entities.vision import DetectedFace, BoundingBox
+from src.domain.entities.vision import (
+    DetectedFace, 
+    BoundingBox, 
+    FaceDetection, 
+    Landmark,
+)
+
+# Standard ArcFace alignment template (112x112)
+ARCFACE_DST = np.array([
+    [38.2946, 51.6963],
+    [73.5318, 51.5014],
+    [56.0252, 71.7366],
+    [41.5493, 92.3655],
+    [70.7299, 92.2041],
+], dtype=np.float32)
+
+
+def estimate_norm(landmark: np.ndarray, image_size: int = 112) -> np.ndarray:
+    """Estimate affine transformation matrix for face alignment.
+    
+    Args:
+        landmark: 5-point facial landmarks (5, 2)
+        image_size: Output image size
+        
+    Returns:
+        Affine transformation matrix (2, 3)
+    """
+    assert landmark.shape == (5, 2)
+    
+    dst = ARCFACE_DST.copy()
+    if image_size != 112:
+        dst = dst * (image_size / 112.0)
+    
+    tform = trans.SimilarityTransform()
+    tform.estimate(landmark, dst)
+    M = tform.params[0:2, :]
+    
+    return M
 
 
 class FaceRecognitionAdapter(IFaceRecognitionAdapter):
-    """Face recognition adapter using InsightFace with SCRFD + ArcFace."""
+    """Face recognition adapter using InsightFace with SCRFD + ArcFace.
+    
+    Supports two modes:
+    1. Combined detection + recognition (legacy, for registration)
+    2. Separate detection and recognition (for streaming pipeline)
+    """
     
     def __init__(
         self,
@@ -58,6 +101,13 @@ class FaceRecognitionAdapter(IFaceRecognitionAdapter):
             det_size=(self.det_size, self.det_size),
         )
         
+        # Store recognition model reference for direct embedding extraction
+        self._rec_model = None
+        for model in self.app.models.values():
+            if hasattr(model, 'get_feat'):
+                self._rec_model = model
+                break
+        
         print(f"InsightFace initialized: model={self.model_name}, "
               f"ctx_id={self.ctx_id}, det_size={self.det_size}")
     
@@ -99,6 +149,10 @@ class FaceRecognitionAdapter(IFaceRecognitionAdapter):
         _, buffer = cv2.imencode(".jpg", face_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
         return buffer.tobytes()
     
+    # =========================================================================
+    # Legacy method (combined detection + recognition, for registration)
+    # =========================================================================
+    
     def detect_faces(self, image_bytes: bytes, include_crops: bool = False) -> List[DetectedFace]:
         """Detect all faces in an image and extract embeddings.
         
@@ -114,7 +168,7 @@ class FaceRecognitionAdapter(IFaceRecognitionAdapter):
         if img is None:
             return []
         
-        # Detect faces using SCRFD
+        # Detect faces using SCRFD + extract embeddings with ArcFace
         faces = self.app.get(img)
         
         results = []
@@ -128,6 +182,11 @@ class FaceRecognitionAdapter(IFaceRecognitionAdapter):
             
             confidence = float(face.det_score) if hasattr(face, 'det_score') else 0.0
             
+            # Extract landmark
+            landmark = None
+            if hasattr(face, 'kps') and face.kps is not None:
+                landmark = Landmark.from_array(face.kps)
+            
             crop_bytes = None
             if include_crops:
                 crop_bytes = self._crop_face_from_image(img, box)
@@ -137,151 +196,223 @@ class FaceRecognitionAdapter(IFaceRecognitionAdapter):
                 embedding=embedding,
                 confidence=confidence,
                 crop_bytes=crop_bytes,
-                detection_index=idx
+                detection_index=idx,
+                landmark=landmark,
             ))
         
         return results
     
-    def get_embedding(self, image_bytes: bytes) -> Optional[List[float]]:
-        """Get face embedding from an image with single face.
+    # =========================================================================
+    # New methods (separate detection and recognition, for streaming pipeline)
+    # =========================================================================
+    
+    def detect_faces_only(self, image_bytes: bytes) -> List[FaceDetection]:
+        """Detect faces WITHOUT extracting embeddings (for streaming pipeline).
         
-        Extracts ArcFace embedding (512-dimensional vector).
+        This is faster as it only runs SCRFD detection without ArcFace.
         
         Args:
             image_bytes: Raw image bytes (JPEG/PNG)
             
         Returns:
-            Optional[List[float]]: Face embedding vector or None if no face detected
+            List[FaceDetection]: Detected faces with bbox, confidence, landmark
         """
-        faces = self.detect_faces(image_bytes)
+        img = self._decode_image(image_bytes)
+        if img is None:
+            return []
         
-        if not faces:
-            return None
-        
-        # Return the largest face's embedding (most likely the main subject)
-        if len(faces) > 1:
-            faces.sort(
-                key=lambda f: f.bbox.width * f.bbox.height,
-                reverse=True,
-            )
-        
-        return faces[0].embedding if faces[0].embedding else None
+        return self.detect_faces_only_from_array(img)
     
-    def compute_similarity(
-        self, embedding1: List[float], embedding2: List[float]
-    ) -> float:
-        """Compute cosine similarity between two ArcFace embeddings.
+    def detect_faces_only_from_array(self, img: np.ndarray) -> List[FaceDetection]:
+        """Detect faces from numpy array WITHOUT extracting embeddings.
         
         Args:
-            embedding1: First embedding vector (512-dim)
-            embedding2: Second embedding vector (512-dim)
+            img: Image as BGR numpy array
             
         Returns:
-            float: Cosine similarity score (-1 to 1, higher is more similar)
+            List[FaceDetection]: Detected faces with bbox, confidence, landmark
         """
-        vec1 = np.array(embedding1)
-        vec2 = np.array(embedding2)
+        # Use detection model only (SCRFD)
+        det_model = self.app.models.get('detection')
+        if det_model is None:
+            # Fallback: use full pipeline but ignore embeddings
+            faces = self.app.get(img)
+        else:
+            # Direct detection without recognition
+            bboxes, kpss = det_model.detect(img, max_num=0, metric='default')
+            faces = []
+            for i in range(len(bboxes)):
+                face = type('Face', (), {})()
+                face.bbox = bboxes[i, :4]
+                face.det_score = bboxes[i, 4]
+                face.kps = kpss[i] if kpss is not None else None
+                faces.append(face)
         
-        # Normalize vectors
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
+        results = []
+        for idx, face in enumerate(faces):
+            bbox = face.bbox.astype(int)
+            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            
+            # Skip invalid bboxes
+            if x2 <= x1 or y2 <= y1:
+                continue
+            
+            box = BoundingBox.from_xyxy(x1, y1, x2, y2)
+            confidence = float(face.det_score) if hasattr(face, 'det_score') else 0.0
+            
+            # Extract landmark
+            landmark = None
+            if hasattr(face, 'kps') and face.kps is not None:
+                landmark = Landmark.from_array(face.kps)
+            
+            results.append(FaceDetection(
+                bbox=box,
+                confidence=confidence,
+                landmark=landmark,
+                detection_index=idx,
+            ))
         
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        
-        # Compute cosine similarity
-        similarity = float(np.dot(vec1, vec2) / (norm1 * norm2))
-        
-        return similarity
+        return results
     
-    def is_same_person(
+    def align_face(
         self,
-        embedding1: List[float],
-        embedding2: List[float],
-        threshold: float = None,
-    ) -> Tuple[bool, float]:
-        """Check if two embeddings belong to the same person.
+        image: np.ndarray,
+        landmark: Landmark,
+        output_size: Tuple[int, int] = (112, 112),
+    ) -> Optional[np.ndarray]:
+        """Align face using landmarks (for recognition).
+        
+        Uses affine transformation based on 5-point landmarks.
+        Standard ArcFace alignment to 112x112.
         
         Args:
-            embedding1: First face embedding
-            embedding2: Second face embedding
-            threshold: Similarity threshold (default from settings)
+            image: Full frame image (BGR numpy array)
+            landmark: 5-point facial landmarks
+            output_size: Output aligned face size (default 112x112 for ArcFace)
             
         Returns:
-            Tuple[bool, float]: (is_same_person, similarity_score)
+            Aligned face image or None if alignment fails
         """
-        threshold = threshold or self.similarity_threshold
-        similarity = self.compute_similarity(embedding1, embedding2)
-        return similarity >= threshold, similarity
+        try:
+            # Get affine transformation matrix
+            M = estimate_norm(landmark.points, output_size[0])
+            
+            # Apply affine transformation
+            aligned = cv2.warpAffine(
+                image, 
+                M, 
+                output_size, 
+                borderValue=0.0
+            )
+            
+            return aligned
+            
+        except Exception as e:
+            print(f"Error aligning face: {e}")
+            return None
     
-    def get_face_area(self, image_bytes: bytes) -> Optional[bytes]:
-        """Extract the face region from an image.
+    def extract_embedding(self, aligned_face: np.ndarray) -> Optional[List[float]]:
+        """Extract embedding from aligned face image.
         
         Args:
-            image_bytes: Raw image bytes
+            aligned_face: Aligned face image (112x112 BGR)
             
         Returns:
-            Optional[bytes]: Cropped face image as JPEG bytes
+            512-dimensional embedding vector or None if extraction fails
         """
-        img = self._decode_image(image_bytes)
-        if img is None:
+        try:
+            if self._rec_model is None:
+                print("Recognition model not available")
+                return None
+            
+            # Ensure correct size
+            if aligned_face.shape[:2] != (112, 112):
+                aligned_face = cv2.resize(aligned_face, (112, 112))
+            
+            # Extract embedding using ArcFace model
+            embedding = self._rec_model.get_feat(aligned_face)
+            
+            # Normalize embedding
+            embedding = embedding.flatten()
+            norm = np.linalg.norm(embedding)
+            if norm > 0:
+                embedding = embedding / norm
+            
+            return embedding.tolist()
+            
+        except Exception as e:
+            print(f"Error extracting embedding: {e}")
             return None
-        
-        faces = self.app.get(img)
-        if not faces:
-            return None
-        
-        # Get the largest face
-        face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-        
-        bbox = face.bbox.astype(int)
-        x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
-        
-        # Add padding (10% of face size)
-        padding_x = int((x2 - x1) * 0.1)
-        padding_y = int((y2 - y1) * 0.1)
-        h, w = img.shape[:2]
-        x1 = max(0, x1 - padding_x)
-        y1 = max(0, y1 - padding_y)
-        x2 = min(w, x2 + padding_x)
-        y2 = min(h, y2 + padding_y)
-        
-        # Crop face
-        face_img = img[y1:y2, x1:x2]
-        
-        # Encode to JPEG with high quality
-        _, buffer = cv2.imencode(".jpg", face_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
-        return buffer.tobytes()
     
-    def get_aligned_face(self, image_bytes: bytes) -> Optional[bytes]:
-        """Get aligned and normalized face image.
-        
-        This is useful for face registration as it provides consistent face representation.
+    def crop_face(
+        self,
+        image: np.ndarray,
+        bbox: BoundingBox,
+        padding: float = 0.1,
+    ) -> Optional[np.ndarray]:
+        """Crop face region from image with padding.
         
         Args:
-            image_bytes: Raw image bytes
+            image: Full frame image (BGR numpy array)
+            bbox: Face bounding box
+            padding: Padding ratio (default 10%)
             
         Returns:
-            Optional[bytes]: Aligned face image (112x112) as JPEG bytes
+            Cropped face image or None if cropping fails
         """
-        img = self._decode_image(image_bytes)
-        if img is None:
+        try:
+            h, w = image.shape[:2]
+            
+            # Calculate padding
+            pad_x = int(bbox.width * padding)
+            pad_y = int(bbox.height * padding)
+            
+            # Apply padding with bounds checking
+            x1 = max(0, bbox.x - pad_x)
+            y1 = max(0, bbox.y - pad_y)
+            x2 = min(w, bbox.x + bbox.width + pad_x)
+            y2 = min(h, bbox.y + bbox.height + pad_y)
+            
+            # Crop
+            cropped = image[y1:y2, x1:x2]
+            
+            if cropped.size == 0:
+                return None
+            
+            return cropped
+            
+        except Exception as e:
+            print(f"Error cropping face: {e}")
             return None
+    
+    def encode_to_bytes(self, image: np.ndarray, quality: int = 95) -> Optional[bytes]:
+        """Encode numpy array image to JPEG bytes.
         
-        faces = self.app.get(img)
-        if not faces:
+        Args:
+            image: Image as BGR numpy array
+            quality: JPEG quality (0-100)
+            
+        Returns:
+            JPEG bytes or None if encoding fails
+        """
+        try:
+            _, buffer = cv2.imencode(
+                ".jpg", 
+                image, 
+                [cv2.IMWRITE_JPEG_QUALITY, quality]
+            )
+            return buffer.tobytes()
+        except Exception as e:
+            print(f"Error encoding image: {e}")
             return None
+    
+    def decode_from_bytes(self, image_bytes: bytes) -> Optional[np.ndarray]:
+        """Decode image bytes to numpy array (public method).
         
-        # Get the largest face
-        face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-        
-        # Get aligned face from insightface (112x112 normalized)
-        if hasattr(face, 'normed_embedding'):
-            # Get the aligned face image used for embedding
-            aligned = face.aimg if hasattr(face, 'aimg') else None
-            if aligned is not None:
-                _, buffer = cv2.imencode(".jpg", aligned, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                return buffer.tobytes()
-        
-        # Fallback to regular cropping
-        return self.get_face_area(image_bytes)
+        Args:
+            image_bytes: Raw image bytes (JPEG/PNG)
+            
+        Returns:
+            Image as BGR numpy array or None if decoding fails
+        """
+        return self._decode_image(image_bytes)

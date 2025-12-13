@@ -10,7 +10,6 @@ from src.adapters.qdrant.rag_adapter import RAGAdapter
 from src.adapters.qdrant.face_store import QdrantFaceStore
 from src.adapters.filesystem.document_storage import FileSystemDocumentStorage
 from src.adapters.speech.stt_adapter import STTAdapter
-from src.adapters.redis.cache_adapter import RedisCacheAdapter
 from src.adapters.insightface.face_recognition_adapter import FaceRecognitionAdapter
 from src.adapters.bytetrack.tracker_adapter import TrackerAdapter
 from src.adapters.langchain.agent_adapter import AgentAdapter
@@ -19,7 +18,7 @@ from src.config import settings
 from src.use_cases.chat_text import ChatTextUseCase
 from src.use_cases.chat_speech import ChatSpeechUseCase
 from src.use_cases.chat_history import GetChatHistoryUseCase, GetChatSessionUseCase
-from src.use_cases.vision_stream import VisionStreamUseCase
+from src.use_cases.vision import VisionUseCase
 from src.use_cases.faces import (
     RegisterFacesUseCase,
     GetFacesUseCase,
@@ -36,7 +35,6 @@ llm_adapter: LLMAdapter | None = None
 rag_adapter: RAGAdapter | None = None
 document_storage: FileSystemDocumentStorage | None = None
 stt_adapter: STTAdapter | None = None
-cache_adapter: RedisCacheAdapter | None = None
 face_recognition_adapter: FaceRecognitionAdapter | None = None
 face_store: QdrantFaceStore | None = None
 tracker_adapter: TrackerAdapter | None = None
@@ -46,7 +44,6 @@ agent_adapter: AgentAdapter | None = None
 
 def initialize_dependencies(
     database_url: str,
-    redis_url: str,
     face_recognition_model: str,
     gpu_device: int,
     enable_face_recognition: bool,
@@ -58,7 +55,6 @@ def initialize_dependencies(
     
     Args:
         database_url: PostgreSQL connection URL
-        redis_url: Redis connection URL
         face_recognition_model: InsightFace model name
         face_recognition_ctx_id: GPU context ID (-1 for CPU)
         enable_face_recognition: Whether to enable face recognition
@@ -68,7 +64,7 @@ def initialize_dependencies(
         None
     """
     global db_connection, llm_adapter, rag_adapter, document_storage
-    global stt_adapter, cache_adapter, vision_adapter
+    global stt_adapter
     global face_recognition_adapter, face_store, tracker_adapter
     global emotion_detection_adapter, agent_adapter
 
@@ -78,7 +74,6 @@ def initialize_dependencies(
         rag_adapter = RAGAdapter()
         # document_storage = FileSystemDocumentStorage()
         stt_adapter = STTAdapter()
-        cache_adapter = RedisCacheAdapter(url=redis_url)
         agent_adapter = AgentAdapter(
             llm_adapter=llm_adapter,
             rag_adapter=rag_adapter,
@@ -172,24 +167,24 @@ async def get_session_use_case(
     return GetChatSessionUseCase(repository)
 
 
-def get_vision_stream_use_case() -> VisionStreamUseCase:
-    """Get vision stream use case."""
+def get_vision_use_case() -> VisionUseCase:
+    """Get vision use case."""
     if not face_recognition_adapter:
         raise RuntimeError("Face recognition adapter not initialized")
     if not tracker_adapter:
         raise RuntimeError("Tracker adapter not initialized")
-    if cache_adapter is None:
-        raise RuntimeError("Cache adapter not initialized")
     if face_store is None:
         raise RuntimeError("Face store not initialized")
     
-    return VisionStreamUseCase(
+    return VisionUseCase(
         face_recognition=face_recognition_adapter,
         face_store=face_store,
         tracker=tracker_adapter,
         emotion_detection=emotion_detection_adapter,
-        cache_adapter=cache_adapter,
         similarity_threshold=settings.face_similarity_threshold,
+        emotion_detection_interval=settings.emotion_detection_interval if hasattr(settings, 'emotion_detection_interval') else 5,
+        recognition_retry_interval=settings.recognition_retry_interval if hasattr(settings, 'recognition_retry_interval') else 2.0,
+        max_recognition_attempts=settings.max_recognition_attempts if hasattr(settings, 'max_recognition_attempts') else 5,
     )
 
 

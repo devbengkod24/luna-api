@@ -2,51 +2,103 @@
 from abc import ABC, abstractmethod
 from typing import Optional, List, Tuple, Dict
 
+import numpy as np
+
 from src.domain.entities.vision import (
     DetectedFace,
     FaceData,
     DetectedEmotion,
+    FaceDetection,
+    BoundingBox,
+    Landmark,
+    TrackedFaceData,
 )
 
+
 class IFaceRecognitionAdapter(ABC):
-    """Interface for face recognition adapter using InsightFace."""
+    """Interface for face recognition adapter using InsightFace.
+    
+    Supports two modes:
+    1. Detection + Recognition combined (legacy, for registration)
+    2. Separate detection and recognition (for streaming pipeline)
+    """
     
     @abstractmethod
     def detect_faces(self, image_bytes: bytes, include_crops: bool = False) -> List[DetectedFace]:
-        """Detect all faces in an image and extract embeddings.
+        """Detect all faces and extract embeddings (legacy method for registration).
         
         Args:
             image_bytes: Raw image bytes (JPEG/PNG)
-            include_crops: Whether to include cropped face images in the result
+            include_crops: Whether to include cropped face images
+            
         Returns:
-            List[DetectedFace]: List of detected faces with embeddings
+            List[DetectedFace]: Detected faces with embeddings
         """
         pass
     
     @abstractmethod
-    def get_embedding(self, image_bytes: bytes) -> Optional[List[float]]:
-        """Get face embedding from an image with single face.
+    def detect_faces_only(self, image_bytes: bytes) -> List[FaceDetection]:
+        """Detect faces WITHOUT extracting embeddings (for streaming pipeline).
+        
+        This is faster as it only runs SCRFD detection.
         
         Args:
             image_bytes: Raw image bytes (JPEG/PNG)
             
         Returns:
-            Optional[List[float]]: Face embedding vector or None if no face detected
+            List[FaceDetection]: Detected faces with bbox, confidence, landmark
         """
         pass
     
     @abstractmethod
-    def compute_similarity(
-        self, embedding1: List[float], embedding2: List[float]
-    ) -> float:
-        """Compute cosine similarity between two embeddings.
+    def align_face(
+        self,
+        image: np.ndarray,
+        landmark: Landmark,
+        output_size: Tuple[int, int] = (112, 112),
+    ) -> Optional[np.ndarray]:
+        """Align face using landmarks (for recognition).
+        
+        Uses affine transformation based on 5-point landmarks.
         
         Args:
-            embedding1: First embedding vector
-            embedding2: Second embedding vector
+            image: Full frame image (BGR numpy array)
+            landmark: 5-point facial landmarks
+            output_size: Output aligned face size (default 112x112 for ArcFace)
             
         Returns:
-            float: Similarity score (0-1)
+            Aligned face image or None if alignment fails
+        """
+        pass
+    
+    @abstractmethod
+    def extract_embedding(self, aligned_face: np.ndarray) -> Optional[List[float]]:
+        """Extract embedding from aligned face image.
+        
+        Args:
+            aligned_face: Aligned face image (112x112 BGR)
+            
+        Returns:
+            512-dimensional embedding vector or None if extraction fails
+        """
+        pass
+    
+    @abstractmethod
+    def crop_face(
+        self,
+        image: np.ndarray,
+        bbox: BoundingBox,
+        padding: float = 0.1,
+    ) -> Optional[np.ndarray]:
+        """Crop face region from image with padding.
+        
+        Args:
+            image: Full frame image (BGR numpy array)
+            bbox: Face bounding box
+            padding: Padding ratio (default 10%)
+            
+        Returns:
+            Cropped face image or None if cropping fails
         """
         pass
 
@@ -123,7 +175,11 @@ class ITrackerAdapter(ABC):
     """Interface for object/person tracking across frames."""
     
     @abstractmethod
-    def track(self, detections: List[DetectedFace], frame_id: int) -> List[Dict]:
+    def track(
+        self, 
+        detections: List[FaceDetection], 
+        frame_id: int
+    ) -> Tuple[List["TrackedFaceData"], List[int]]:
         """Update tracker with new detections.
         
         Args:
@@ -131,22 +187,20 @@ class ITrackerAdapter(ABC):
             frame_id: Current frame number
             
         Returns:
-            List[Dict]: Tracked objects with track_id, box, confidence, etc.
-            Format: [
-                {
-                    "track_id": int,
-                    "box": BoundingBox,
-                    "confidence": float,
-                    "embedding": List[float],  # Optional
-                    "age": int,  # Frames since first detection
-                }
-            ]
+            Tuple containing:
+            - List[TrackedFaceData]: Active tracked faces with associated detection data
+            - List[int]: Dead track IDs (tracks that have been lost)
         """
         pass
     
     @abstractmethod
     def reset(self):
         """Reset tracker state (e.g., new video stream)."""
+        pass
+    
+    @abstractmethod
+    def get_active_track_ids(self) -> List[int]:
+        """Get list of currently active track IDs."""
         pass
 
 class IEmotionDetectionAdapter(ABC):
@@ -156,13 +210,26 @@ class IEmotionDetectionAdapter(ABC):
     def detect_emotion(
         self, face_crop_bytes: bytes,
     ) -> DetectedEmotion:
-        """Detect emotion from face region.
+        """Detect emotion from face region (bytes input).
         
         Args:
-            face_crop_bytes: Cropped face image bytes
-            box: Face bounding box
+            face_crop_bytes: Cropped face image bytes (JPEG/PNG)
             
         Returns:
-            Dict with "emotion" (str) and "confidence" (float)
+            DetectedEmotion with emotion label and confidence
+        """
+        pass
+    
+    @abstractmethod
+    def detect_emotion_from_array(
+        self, face_image: np.ndarray,
+    ) -> DetectedEmotion:
+        """Detect emotion from face region (numpy array input).
+        
+        Args:
+            face_image: Face image as BGR numpy array
+            
+        Returns:
+            DetectedEmotion with emotion label and confidence
         """
         pass

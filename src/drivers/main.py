@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
 from src.drivers import dependencies
-from src.drivers.rest.routers import chat, face, document
+from src.drivers.rest.routers import chat, face, knowledge
 from src.drivers.realtime.routers import vision
 
 
@@ -22,7 +22,6 @@ async def lifespan(app: FastAPI):
         # Initialize dependencies
         dependencies.initialize_dependencies(
             database_url=settings.database_url,
-            redis_url=settings.redis_url,
             face_recognition_model=settings.face_recognition_model,
             gpu_device=settings.gpu_device,
             enable_face_recognition=settings.enable_face_recognition,
@@ -36,21 +35,11 @@ async def lifespan(app: FastAPI):
         await dependencies.rag_adapter.initialize()
         
         # Initialize face store collection
-        if settings.init_face_embedding:
-            await dependencies.initialize_face_embedding(run_seed=True)
-        else:
-            await dependencies.initialize_face_embedding(run_seed=False)
+        await dependencies.initialize_face_embedding(run_seed=settings.seed_faces)
         
         # Initialize vision use case for WebSocket
-        # vision_use_case = dependencies.get_vision_stream_use_case()
+        # vision_use_case = dependencies.get_vision_use_case()
         # vision.set_vision_use_case(vision_use_case)
-        try:
-            if settings.enable_face_recognition:
-                # Test that vision use case can be created
-                _ = dependencies.get_vision_stream_use_case()
-                print("Vision streaming ready")
-        except RuntimeError as e:
-            print(f"Warning: Vision streaming not available: {e}")
 
         print("Startup complete")
 
@@ -67,8 +56,6 @@ async def lifespan(app: FastAPI):
         # Close connections
         if dependencies.db_connection:
             await dependencies.db_connection.close()
-        if dependencies.cache_adapter:
-            await dependencies.cache_adapter.close()
     except Exception as e:
         print(f"Error during shutdown: {e}")
     
@@ -95,7 +82,7 @@ app.add_middleware(
 # Include routers
 app.include_router(chat.router)
 app.include_router(face.router)
-app.include_router(document.router)
+app.include_router(knowledge.router)
 app.include_router(vision.router)
 
 @app.get("/")

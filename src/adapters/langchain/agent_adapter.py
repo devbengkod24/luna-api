@@ -165,11 +165,17 @@ class AgentAdapter(IAgentAdapter):
                         yield {"type": "token", "content": chunk}
                 
                 elif kind == "on_tool_start":
-                    # Tool call started
+                    data = event.get("data", {}) or {}
+                    tool_input = (
+                        data.get("args")
+                        or data.get("input")
+                        or data.get("inputs")
+                        or data
+                    )
                     yield {
                         "type": "tool_call",
-                        "tool": event["name"],
-                        "input": event["data"]["args"],
+                        "tool": event.get("name"),
+                        "input": tool_input,
                     }
                 
                 elif kind == "on_tool_end":

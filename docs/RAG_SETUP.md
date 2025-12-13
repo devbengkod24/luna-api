@@ -60,10 +60,10 @@ storage/
 
 ## 🔌 API Endpoints
 
-### Upload Document
+### Upload Knowledge
 
 ```bash
-POST /v1/documents/upload
+POST /v1/knowledge/upload
 Content-Type: multipart/form-data
 
 Body:
@@ -79,10 +79,10 @@ Response:
 }
 ```
 
-### List Documents
+### List Knowledge Items
 
 ```bash
-GET /v1/documents/list
+GET /v1/knowledge/list
 
 Response:
 [
@@ -97,10 +97,10 @@ Response:
 ]
 ```
 
-### Delete Document
+### Delete Knowledge
 
 ```bash
-DELETE /v1/documents/{document_id}
+DELETE /v1/knowledge/{document_id}
 
 Response:
 {
@@ -109,10 +109,10 @@ Response:
 }
 ```
 
-### Search Documents
+### Search Knowledge
 
 ```bash
-POST /v1/documents/search
+POST /v1/knowledge/search
 Content-Type: application/json
 
 Body:
@@ -173,14 +173,14 @@ docker exec ollama ollama pull nomic-embed-text:latest
 ### Test Upload
 
 ```bash
-curl -X POST "http://localhost:8000/v1/documents/upload" \
+curl -X POST "http://localhost:8000/v1/knowledge/upload" \
   -F "file=@/path/to/document.pdf"
 ```
 
 ### Test Search
 
 ```bash
-curl -X POST "http://localhost:8000/v1/documents/search" \
+curl -X POST "http://localhost:8000/v1/knowledge/search" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "apa itu beasiswa?",

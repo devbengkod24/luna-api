@@ -1,6 +1,9 @@
 """Face registration use cases."""
 import base64
-from typing import List, Optional
+from typing import List
+import logging
+from pathlib import Path
+import aiofiles
 
 from src.ports.vision import IFaceRecognitionAdapter, IFaceVectorStore
 from src.domain.entities.vision import (
@@ -9,6 +12,11 @@ from src.domain.entities.vision import (
     RegisterFaceInput,
 )
 
+MAX_BASE64_SIZE = 10 * 1024 * 1024
+MAX_EMBEDDING_LENGTH = 512
+MIN_EMBEDDING_LENGTH = 128 
+
+logger = logging.getLogger(__name__)
 
 class RegisterFacesUseCase:
     """Use case for registering one or multiple faces.
@@ -48,9 +56,16 @@ class RegisterFacesUseCase:
         Returns:
             List[FaceRegistrationResult]: Results for each face registration attempt
         """
+        if not faces:
+            raise ValueError("Faces list cannot be empty")
+        
+        logger.info(f"Registering {len(faces)} face(s), skip_existing={skip_existing}")
+
         results = []
         
-        for face_input in faces:
+        for i, face_input in enumerate(faces, 1):
+            logger.debug(f"Processing face {i}/{len(faces)}: {face_input.name} ({face_input.nim})")
+            
             result = await self._register_single_face(
                 name=face_input.name,
                 nim=face_input.nim,
@@ -58,6 +73,14 @@ class RegisterFacesUseCase:
                 update_if_exists=not skip_existing,
             )
             results.append(result)
+            
+            if result.success:
+                logger.info(f"Successfully registered face {i}/{len(faces)}: {result.name} ({result.nim})")
+            else:
+                logger.warning(f"Failed to register face {i}/{len(faces)}: {result.message}")
+        
+        success_count = sum(1 for r in results if r.success)
+        logger.info(f"Registration complete: {success_count}/{len(faces)} successful")
         
         return results
     
@@ -87,13 +110,28 @@ class RegisterFacesUseCase:
         Returns:
             FaceRegistrationResult: Result with success status and details
         """
+        name = name.strip() if name else ""
+        nim = nim.strip() if nim else ""
         # Step 1: Decode image
         try:
-            image_bytes = base64.b64decode(image_base64)
-        except Exception as e:
+            image_bytes = base64.b64decode(image_base64, validate=True)
+            
+            if len(image_bytes) == 0:
+                return FaceRegistrationResult(
+                    success=False,
+                    message="Image data is empty"
+                )
+        except base64.binascii.Error as e:
+            logger.debug(f"Base64 decode error for {name} ({nim}): {e}")
             return FaceRegistrationResult(
                 success=False,
-                message=f"Invalid base64 image: {str(e)}"
+                message="Invalid base64 image format"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error decoding base64 for {name} ({nim}): {e}", exc_info=True)
+            return FaceRegistrationResult(
+                success=False,
+                message="Failed to decode image"
             )
         
         # Step 2 & 3: Detect faces and validate
@@ -102,10 +140,23 @@ class RegisterFacesUseCase:
                 image_bytes,
                 include_crops=False
             )
-        except Exception as e:
+        except ValueError as e:
+            logger.warning(f"Face detection validation error for {name} ({nim}): {e}")
             return FaceRegistrationResult(
                 success=False,
-                message=f"Face detection failed: {str(e)}"
+                message=f"Face detection validation failed: {str(e)}"
+            )
+        except RuntimeError as e:
+            logger.error(f"Face detection runtime error for {name} ({nim}): {e}", exc_info=True)
+            return FaceRegistrationResult(
+                success=False,
+                message="Face detection service error"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected face detection error for {name} ({nim}): {e}", exc_info=True)
+            return FaceRegistrationResult(
+                success=False,
+                message="Face detection failed"
             )
         
         if not detected_faces:
@@ -124,19 +175,48 @@ class RegisterFacesUseCase:
         detected_face = detected_faces[0]
         embedding = detected_face.embedding
         
-        if not embedding or len(embedding) == 0:
+        if not embedding:
+            logger.warning(f"Empty embedding for {name} ({nim})")
             return FaceRegistrationResult(
                 success=False,
                 message="Failed to extract face embedding"
             )
         
+        # Validate embedding length
+        if not isinstance(embedding, list) or len(embedding) < MIN_EMBEDDING_LENGTH:
+            logger.warning(f"Invalid embedding length for {name} ({nim}): {len(embedding) if isinstance(embedding, list) else 'not a list'}")
+            return FaceRegistrationResult(
+                success=False,
+                message="Invalid face embedding extracted"
+            )
+        
+        if len(embedding) > MAX_EMBEDDING_LENGTH:
+            logger.warning(f"Embedding too long for {name} ({nim}): {len(embedding)}")
+            return FaceRegistrationResult(
+                success=False,
+                message="Invalid face embedding extracted"
+            )
+        
         # Step 5: Check if NIM already exists
         try:
             existing_face = await self.face_store.get_face_by_nim(nim)
-        except Exception as e:
+        except ValueError as e:
+            logger.warning(f"Database query validation error for {name} ({nim}): {e}")
             return FaceRegistrationResult(
                 success=False,
-                message=f"Database query failed: {str(e)}"
+                message="Invalid query parameters"
+            )
+        except ConnectionError as e:
+            logger.error(f"Database connection error for {name} ({nim}): {e}", exc_info=True)
+            return FaceRegistrationResult(
+                success=False,
+                message="Database connection error"
+            )
+        except Exception as e:
+            logger.error(f"Database query error for {name} ({nim}): {e}", exc_info=True)
+            return FaceRegistrationResult(
+                success=False,
+                message="Database query failed"
             )
         
         # Step 6: Store or update face data
@@ -148,7 +228,7 @@ class RegisterFacesUseCase:
                         face_id=existing_face.id,
                         name=existing_face.name,
                         nim=existing_face.nim,
-                        message=f"Face with NIM {nim} already exists. Use update_if_exists=True to update."
+                        message=f"Face with NIM {nim} already exists. Use skip_existing=False to update."
                     )
                 
                 # Update existing face
@@ -159,6 +239,8 @@ class RegisterFacesUseCase:
                     embedding=embedding,
                 )
                 await self.face_store.add_face(face_data)  # upsert
+                
+                logger.info(f"Updated face: {name} ({nim}), ID: {existing_face.id}")
                 
                 return FaceRegistrationResult(
                     success=True,
@@ -176,6 +258,8 @@ class RegisterFacesUseCase:
                 )
                 face_id = await self.face_store.add_face(face_data)
                 
+                logger.info(f"Registered new face: {name} ({nim}), ID: {face_id}")
+                
                 return FaceRegistrationResult(
                     success=True,
                     face_id=face_id,
@@ -183,10 +267,23 @@ class RegisterFacesUseCase:
                     nim=nim,
                     message="Face registered successfully"
                 )
-        except Exception as e:
+        except ValueError as e:
+            logger.warning(f"Data validation error storing face {name} ({nim}): {e}")
             return FaceRegistrationResult(
                 success=False,
-                message=f"Failed to store face data: {str(e)}"
+                message=f"Invalid face data: {str(e)}"
+            )
+        except ConnectionError as e:
+            logger.error(f"Database connection error storing face {name} ({nim}): {e}", exc_info=True)
+            return FaceRegistrationResult(
+                success=False,
+                message="Database connection error"
+            )
+        except Exception as e:
+            logger.error(f"Error storing face data for {name} ({nim}): {e}", exc_info=True)
+            return FaceRegistrationResult(
+                success=False,
+                message="Failed to store face data"
             )
     
     async def initialize_from_storage(
@@ -204,16 +301,21 @@ class RegisterFacesUseCase:
         Returns:
             tuple[int, int, list[str]]: (total_found, success_count, error_messages)
         """
-        from pathlib import Path
         
         SUPPORTED_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
         storage = Path(storage_path)
         
-        print(f"🔍 Scanning for faces in: {storage}")
+        logger.info(f"Scanning for faces in: {storage}")
         
         if not storage.exists():
-            print(f"⚠️  Storage path does not exist: {storage}")
-            return (0, 0, [f"Storage path not found: {storage}"])
+            error_msg = f"Storage path does not exist: {storage}"
+            logger.error(error_msg)
+            return (0, 0, [error_msg])
+        
+        if not storage.is_dir():
+            error_msg = f"Storage path is not a directory: {storage}"
+            logger.error(error_msg)
+            return (0, 0, [error_msg])
         
         # Scan for image files
         face_inputs = []
@@ -224,15 +326,30 @@ class RegisterFacesUseCase:
                 continue
             
             if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                logger.debug(f"Skipping unsupported file: {file_path.name}")
                 continue
             
             try:
                 # Parse filename: Name__NIM
                 name, nim = self._parse_filename(file_path.stem)
                 
-                # Read and encode image
-                with open(file_path, 'rb') as f:
-                    image_bytes = f.read()
+                # Read and encode image using async I/O
+                async with aiofiles.open(file_path, 'rb') as f:
+                    image_bytes = await f.read()
+                    
+                    if len(image_bytes) == 0:
+                        error_msg = f"Empty file: {file_path.name}"
+                        errors.append(error_msg)
+                        logger.warning(error_msg)
+                        continue
+                    
+                    # Check file size before encoding
+                    if len(image_bytes) > MAX_BASE64_SIZE:
+                        error_msg = f"File too large: {file_path.name} ({len(image_bytes)} bytes)"
+                        errors.append(error_msg)
+                        logger.warning(error_msg)
+                        continue
+                    
                     image_base64 = base64.b64encode(image_bytes).decode('utf-8')
                 
                 face_inputs.append(RegisterFaceInput(
@@ -241,18 +358,26 @@ class RegisterFacesUseCase:
                     image_base64=image_base64,
                 ))
                 
-            except Exception as e:
+            except ValueError as e:
                 error_msg = f"Failed to process {file_path.name}: {str(e)}"
                 errors.append(error_msg)
-                print(f"⚠️  {error_msg}")
+                logger.warning(error_msg)
+            except OSError as e:
+                error_msg = f"File I/O error processing {file_path.name}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg, exc_info=True)
+            except Exception as e:
+                error_msg = f"Unexpected error processing {file_path.name}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg, exc_info=True)
         
         total_found = len(face_inputs)
         
         if total_found == 0:
-            print("ℹ️  No valid face images found in storage")
+            logger.info("No valid face images found in storage")
             return (0, 0, errors)
         
-        print(f"📦 Found {total_found} face image(s) to register")
+        logger.info(f"Found {total_found} face image(s) to register")
         
         # Register all faces (skip existing by default)
         try:
@@ -266,20 +391,25 @@ class RegisterFacesUseCase:
             for i, result in enumerate(results):
                 if result.success:
                     success_count += 1
-                    print(f"✅ Registered: {result.name} ({result.nim})")
+                    logger.info(f"Registered: {result.name} ({result.nim})")
                 else:
                     error_msg = f"{face_inputs[i].name} ({face_inputs[i].nim}): {result.message}"
                     errors.append(error_msg)
-                    print(f"❌ {error_msg}")
+                    logger.warning(error_msg)
             
-            print(f"🎉 Face initialization complete: {success_count}/{total_found} successful")
+            logger.info(f"Face initialization complete: {success_count}/{total_found} successful")
             
             return (total_found, success_count, errors)
             
+        except ValueError as e:
+            error_msg = f"Face registration validation failed: {str(e)}"
+            errors.append(error_msg)
+            logger.error(error_msg, exc_info=True)
+            return (total_found, 0, errors)
         except Exception as e:
             error_msg = f"Face registration failed: {str(e)}"
             errors.append(error_msg)
-            print(f"❌ {error_msg}")
+            logger.error(error_msg, exc_info=True)
             return (total_found, 0, errors)
     
     def _parse_filename(self, filename: str) -> tuple[str, str]:
@@ -298,6 +428,9 @@ class RegisterFacesUseCase:
         Raises:
             ValueError: If filename format is invalid
         """
+        if not filename or not filename.strip():
+            raise ValueError("Filename cannot be empty")
+        
         if '__' not in filename:
             raise ValueError(
                 f"Invalid filename format. Expected 'Name__NIM', got '{filename}'. "
@@ -345,7 +478,16 @@ class GetFacesUseCase:
         Returns:
             List[FaceData]: List of registered faces
         """
-        return await self.face_store.get_all_faces()
+        try:
+            faces = await self.face_store.get_all_faces()
+            logger.info(f"Retrieved {len(faces)} registered face(s)")
+            return faces
+        except ConnectionError as e:
+            logger.error(f"Database connection error retrieving faces: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"Error retrieving faces: {e}", exc_info=True)
+            raise
 
 
 class DeleteFaceUseCase:
@@ -368,4 +510,28 @@ class DeleteFaceUseCase:
         Returns:
             bool: True if deleted successfully
         """
-        return await self.face_store.delete_face(face_id)
+        if not face_id or not face_id.strip():
+            raise ValueError("Face ID cannot be empty")
+        
+        face_id = face_id.strip()
+        
+        logger.info(f"Deleting face: {face_id}")
+        
+        try:
+            result = await self.face_store.delete_face(face_id)
+            
+            if result:
+                logger.info(f"Successfully deleted face: {face_id}")
+            else:
+                logger.warning(f"Face not found or already deleted: {face_id}")
+            
+            return result
+        except ValueError as e:
+            logger.warning(f"Invalid face ID: {face_id}, error: {e}")
+            raise
+        except ConnectionError as e:
+            logger.error(f"Database connection error deleting face {face_id}: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"Error deleting face {face_id}: {e}", exc_info=True)
+            raise
