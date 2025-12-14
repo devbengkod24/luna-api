@@ -19,7 +19,6 @@ Dibangun dengan **Clean Architecture** dan teknologi modern.
 ### Database
 - **PostgreSQL** - Relational database
 - **Qdrant** - Vector database untuk RAG
-- **Redis** - Caching dan session storage
 
 ### ORM & Migrations
 - **SQLAlchemy 2.0** - Async ORM
@@ -62,8 +61,6 @@ VSA-BE-FastAPIv2/
 │   │   │   └── repository.py  # Repository implementation
 │   │   ├── qdrant/             # Qdrant vector DB adapter
 │   │   │   └── rag_adapter.py
-│   │   ├── redis/              # Redis cache adapter
-│   │   │   └── cache_adapter.py
 │   │   ├── llm/                # LLM adapter (OpenAI, etc.)
 │   │   │   └── llm_adapter.py
 │   │   ├── vision/             # Vision AI adapter
@@ -120,7 +117,6 @@ VSA-BE-FastAPIv2/
 
 - **database/**: PostgreSQL dengan SQLAlchemy
 - **qdrant/**: Qdrant vector database untuk RAG
-- **redis/**: Redis untuk caching
 - **llm/**: LLM integration (OpenAI, Anthropic, dll)
 - **vision/**: Computer vision models (emotion, face recognition)
 - **audio/**: STT/TTS services
@@ -166,7 +162,6 @@ Aplikasi akan berjalan di:
 - **API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
 - **PostgreSQL**: localhost:5432
-- **Redis**: localhost:6379
 - **Qdrant**: http://localhost:6333
 
 ### 4. Run Database Migrations
@@ -489,7 +484,6 @@ Konfigurasi aplikasi menggunakan environment variables. Lihat `env.template` unt
 
 **Key Variables**:
 - `DATABASE_URL`: PostgreSQL connection string
-- `REDIS_URL`: Redis connection string
 - `QDRANT_URL`: Qdrant server URL
 - `LLM_API_KEY`: API key untuk LLM provider
 - `STT_API_KEY`: API key untuk STT service

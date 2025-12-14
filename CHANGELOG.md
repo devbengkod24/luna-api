@@ -22,10 +22,6 @@ All notable changes to this project will be documented in this file.
   - Qdrant integration for RAG
   - RAG adapter template
 
-- **Caching**
-  - Redis integration
-  - Cache adapter implementation
-
 - **API Endpoints**
   - WebSocket: `/v1/vision/stream` for real-time vision
   - POST: `/v1/chat/text` for text chat with SSE streaming

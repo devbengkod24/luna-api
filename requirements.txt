@@ -14,9 +14,6 @@ asyncpg==0.31.0
 # Vector DB
 qdrant-client==1.16.1
 
-# Cache & Queue
-redis==7.1.0
-
 # WebSocket & SSE
 python-socketio==5.15.0
 sse-starlette==3.0.3

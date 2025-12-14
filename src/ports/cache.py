@@ -4,7 +4,7 @@ from typing import Optional, Any
 
 
 class ICacheAdapter(ABC):
-    """Interface for cache adapter (Redis)."""
+    """Interface for cache adapter."""
     
     @abstractmethod
     async def get(self, key: str) -> Optional[Any]:

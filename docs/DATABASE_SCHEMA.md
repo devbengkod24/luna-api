@@ -76,20 +76,6 @@ Menyimpan embeddings dokumen untuk RAG (Retrieval Augmented Generation).
 
 ---
 
-## Redis Keys
-
-Redis digunakan untuk caching dan session storage.
-
-### Cache Keys
-
-| Key Pattern                  | Type   | TTL    | Description                    |
-|------------------------------|--------|--------|--------------------------------|
-| `latest_vision_result`       | String | 60s    | Latest vision analysis result  |
-| `session:{uuid}:context`     | String | 3600s  | User context cache per session |
-| `user:{name}:face_encoding`  | String | -      | Face encoding untuk recognition|
-
----
-
 ## Entity Relationship Diagram (ERD)
 
 ```

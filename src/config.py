@@ -44,20 +44,6 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
-    # Redis
-    redis_host: str
-    redis_port: int = 6379
-    redis_password: str
-
-    @property
-    def redis_url(self) -> str:
-        """Build Redis URL."""
-        if self.redis_password:
-            return (
-                f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
-            )
-        return f"redis://{self.redis_host}:{self.redis_port}/0"
-
     # Qdrant
     qdrant_host: str
     qdrant_grpc_port: int = 6334

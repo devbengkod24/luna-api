@@ -68,7 +68,6 @@ docker compose down -v
 ### Prerequisites
 - Python 3.11+
 - PostgreSQL 16
-- Redis 7
 - Qdrant (running locally)
 
 ### Langkah-langkah
@@ -105,12 +104,7 @@ psql -c "CREATE USER vsa_user WITH PASSWORD 'vsa_password';"
 psql -c "GRANT ALL PRIVILEGES ON DATABASE vsa_db TO vsa_user;"
 ```
 
-5. **Start Redis**
-```bash
-redis-server
-```
-
-6. **Start Qdrant**
+5. **Start Qdrant**
 ```bash
 # Dengan Docker
 docker run -p 6333:6333 -p 6334:6334 \
@@ -118,23 +112,23 @@ docker run -p 6333:6333 -p 6334:6334 \
     qdrant/qdrant
 ```
 
-7. **Setup environment**
+6. **Setup environment**
 ```bash
 cp env.template .env
 # Edit .env dengan connection strings untuk localhost
 ```
 
-8. **Run migrations**
+7. **Run migrations**
 ```bash
 alembic upgrade head
 ```
 
-9. **Start development server**
+8. **Start development server**
 ```bash
 uvicorn src.drivers.main:app --reload
 ```
 
-10. **Akses aplikasi**
+9. **Akses aplikasi**
 - API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
 
@@ -364,7 +358,7 @@ await adapter.add_document(
 Tambahkan face encodings untuk user yang dikenal:
 
 ```python
-# Simpan face encodings ke Redis atau database
+# Simpan face encodings ke database
 # Implementasi di vision_adapter.py
 ```
 
@@ -383,16 +377,6 @@ docker compose logs postgres
 
 # Restart service
 docker compose restart postgres
-```
-
-### Redis connection error
-
-```bash
-# Cek Redis
-docker compose ps redis
-
-# Test connection
-docker compose exec redis redis-cli ping
 ```
 
 ### Port already in use
