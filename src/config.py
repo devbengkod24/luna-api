@@ -1,7 +1,6 @@
 """Application configuration."""
 
-import os
-from typing import ClassVar
+from typing import Set
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +48,7 @@ class Settings(BaseSettings):
     qdrant_grpc_port: int = 6334
     qdrant_api_key: str
     qdrant_collection_name: str = "vsa_collection"
+    faces_collection_name: str = "faces_collection"
 
     # LLM
     llm_model: str = "llama3.1:8b"
@@ -70,6 +70,15 @@ class Settings(BaseSettings):
     face_similarity_threshold: float = (
         0.5  # Cosine similarity threshold (0.4-0.6 recommended)
     )
+
+    faces_dir: str = "storage/faces"
+    face_max_batch_size: int = 100  # Max faces per request
+    face_max_image_size: int = 10 * 1024 * 1024  # 10MB
+    faces_allowed_extensions: Set[str] = {'.jpg', '.jpeg', '.png'}
+
+    rag_dir: str = "storage/rag"
+    rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
+    rag_allowed_extensions: Set[str] = {'.pdf', '.txt', '.docx', '.doc'}
     
     # ByteTrack Tracker
     tracker_max_age: int = 60  # Max frames to keep track alive without detection
@@ -79,6 +88,10 @@ class Settings(BaseSettings):
     # Emotion Detection
     enable_emotion_detection: bool = True
     seed_faces: bool = False
+    seed_knowledge: bool = True
+    
+    # Speech-to-Text (Faster Whisper)
+    whisper_model: str = "base"  # tiny, base, small, medium, large-v1, large-v2, large-v3
 
     # Rate limiting constants
     frame_timeout_seconds: float = 5.0
@@ -87,15 +100,6 @@ class Settings(BaseSettings):
     emotion_detection_interval: int = 5  # Frames between emotion detection
     recognition_retry_interval: float = 2.0  # Seconds between recognition retries
     max_recognition_attempts: int = 5  # Max attempts per track
-
-
-    # Storage paths
-    base_dir: ClassVar[str] = os.path.dirname(os.path.dirname(__file__))
-    media_base_dir: str = os.path.join(base_dir, "storage")
-    faces_dir: str = os.path.join(media_base_dir, "faces")
-    rag_storage_path: str = os.path.join(media_base_dir, "rag", "documents")
-    rag_metadata_path: str = os.path.join(media_base_dir, "rag", "metadata")
-    rag_docs_dir: str = os.path.join(media_base_dir, "rag", "documents")  # Deprecated, use rag_storage_path
 
     # CORS
     cors_origins: str = "*"

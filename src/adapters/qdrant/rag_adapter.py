@@ -1,6 +1,6 @@
 """LlamaIndex RAG adapter with Qdrant and Ollama."""
 import uuid
-from typing import List
+from typing import List, Dict
 from pathlib import Path
 from typing import Optional
 
@@ -21,7 +21,7 @@ from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition,
 
 from src.config import settings
 from src.ports.rag import IRAGAdapter
-from src.domain.entities.document import DocumentMetadata, RetrievalResult, NodeMetadata
+from src.domain.entities.knowledge import RetrievalResult
 
 
 class RAGAdapter(IRAGAdapter):
@@ -183,58 +183,14 @@ class RAGAdapter(IRAGAdapter):
             traceback.print_exc()
             return []
     
-    # def _reciprocal_rank_fusion(
-    #     self, 
-    #     list1: List, 
-    #     list2: List, 
-    #     k: int = 60
-    # ) -> List:
-        """Combine two ranked lists using RRF."""
-        scores = {}
-        
-        # Score from list1
-        for rank, item in enumerate(list1, 1):
-            node_id = item.node_id if hasattr(item, 'node_id') else id(item)
-            scores[node_id] = scores.get(node_id, 0) + 1 / (rank + k)
-        
-        # Score from list2
-        for rank, item in enumerate(list2, 1):
-            node_id = item.node_id if hasattr(item, 'node_id') else id(item)
-            scores[node_id] = scores.get(node_id, 0) + 1 / (rank + k)
-        
-        # Combine and sort
-        combined = {}
-        for item in list1 + list2:
-            node_id = item.node_id if hasattr(item, 'node_id') else id(item)
-            if node_id not in combined:
-                combined[node_id] = item
-        
-        # Sort by RRF score
-        sorted_items = sorted(
-            combined.values(),
-            key=lambda x: scores.get(
-                x.node_id if hasattr(x, 'node_id') else id(x), 
-                0
-            ),
-            reverse=True
-        )
-        
-        return sorted_items
-
     async def add_document(
         self,
-        document_id: str,
         file_path: Path,
-        metadata: DocumentMetadata,
-        node_metadata_template: Optional[NodeMetadata] = None, 
     ) -> int:
         """Add a document to the vector store.
         
         Args:
-            document_id: Unique document ID
             file_path: Path to the document file
-            metadata: Document-level metadata
-            node_metadata_template: Template for node metadata (optional)
             
         Returns:
             int: Number of chunks created
@@ -244,32 +200,14 @@ class RAGAdapter(IRAGAdapter):
         ).load_data()
 
         nodes = self.node_parser.get_nodes_from_documents(documents)
-        
-        for idx, node in enumerate(nodes):
-            node.metadata.update({
-                "doc_id": document_id,
-                "chunk_id": f"{document_id}_{idx:02d}",
-                "position": idx,
-                "source": node_metadata_template.source,
-                "section": node_metadata_template.section or "",
-                "document_type": node_metadata_template.document_type,
-                "language": node_metadata_template.language or "id",
-                "year": node_metadata_template.year,
-                "tags": node_metadata_template.tags.copy() if node_metadata_template.tags else [],
-            })
 
         VectorStoreIndex(
             nodes,
             storage_context=self.storage_context,
-            transformations=[],
             store_nodes_override=True
         )
 
-        num_chunks = len(nodes)
-         
-        print(f"Added document {document_id} with {num_chunks} chunks")
-        
-        return num_chunks
+        return len(nodes)
     
     async def delete_document(self, document_id: str) -> bool:
         """Delete a document from the vector store.
@@ -306,8 +244,8 @@ class RAGAdapter(IRAGAdapter):
             List[str]: List of document IDs
         """
         try:
-            # Scroll through all points and collect unique doc_ids
-            document_ids = set()
+            # Scroll through all points and collect unique file_paths
+            document_paths = set()
             offset = None
             
             while True:
@@ -320,16 +258,77 @@ class RAGAdapter(IRAGAdapter):
                 )
                 
                 for record in records:
-                    doc_id = record.payload.get("doc_id")
-                    if doc_id:
-                        document_ids.add(doc_id)
+                    file_path = record.payload.get("file_path")
+                    if file_path:
+                        document_paths.add(file_path)
                 
                 if next_offset is None:
                     break
                 offset = next_offset
             
-            return list(document_ids)
+            return list(document_paths)
         except Exception as e:
             print(f"Error getting document IDs: {e}")
+            return []
+    
+    async def get_all_documents_metadata(self) -> List[Dict]:
+        """Get all documents with their metadata from vector store.
+        
+        Returns:
+            List[Dict]: List of documents with metadata (document_id, file_name, file_type, file_size, creation_date)
+        """
+        try:
+            # Dictionary to store unique documents by file_path
+            documents_dict = {}
+            offset = None
+            
+            while True:
+                records, next_offset = await self.aclient.scroll(
+                    collection_name=self.collection_name,
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                
+                for record in records:
+                    payload = record.payload
+                    # LlamaIndex stores file_path in metadata
+                    file_path = payload.get("file_path") or payload.get("file_name")
+                    
+                    if file_path and file_path not in documents_dict:
+                        # Extract document ID from file path (filename without extension)
+                        file_path_obj = Path(file_path)
+                        
+                        # Get metadata from payload (LlamaIndex default metadata)
+                        # LlamaIndex stores: file_path, file_name, file_type, file_size, creation_date
+                        document_id = payload.get("doc_id") or file_path_obj.stem
+                        file_name = payload.get("file_name") or file_path_obj.name
+                        file_type = payload.get("file_type") or file_path_obj.suffix.lower().lstrip('.') or "unknown"
+                        file_size = payload.get("file_size") or payload.get("file_size_bytes") or 0
+                        creation_date = (
+                            payload.get("creation_date") or 
+                            payload.get("date_created") or 
+                            payload.get("uploaded_at") or 
+                            ""
+                        )
+                        
+                        documents_dict[file_path] = {
+                            "document_id": document_id,
+                            "file_name": file_name,
+                            "file_type": file_type,
+                            "file_size": int(file_size) if file_size else 0,
+                            "creation_date": str(creation_date) if creation_date else "",
+                        }
+                
+                if next_offset is None:
+                    break
+                offset = next_offset
+            
+            return list(documents_dict.values())
+        except Exception as e:
+            print(f"Error getting documents metadata: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 

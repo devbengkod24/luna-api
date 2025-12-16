@@ -17,13 +17,8 @@ from src.ports.vision import IFaceVectorStore
 from src.domain.entities.vision import FaceData
 
 
-class QdrantFaceStore(IFaceVectorStore):
+class FaceStore(IFaceVectorStore):
     """Face vector store using Qdrant."""
-    
-    # InsightFace embedding dimension (arcface model)
-    EMBEDDING_DIM = 512
-    COLLECTION_NAME = "face_embeddings"
-    
     def __init__(self):
         """Initialize Qdrant client."""
         self.client = AsyncQdrantClient(
@@ -32,20 +27,19 @@ class QdrantFaceStore(IFaceVectorStore):
             prefer_grpc=True,
         )
     
-    async def initialize(self) -> None:
+    async def initialize(self, collection_name: str) -> None:
         """Initialize the face embeddings collection."""
         collections = await self.client.get_collections()
         collection_names = [c.name for c in collections.collections]
-        
-        if self.COLLECTION_NAME not in collection_names:
+        if collection_name not in collection_names:
             await self.client.create_collection(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=collection_name,
                 vectors_config=VectorParams(
-                    size=self.EMBEDDING_DIM,
+                    size=512,
                     distance=Distance.COSINE,
                 ),
             )
-            print(f"Created collection: {self.COLLECTION_NAME}")
+            print(f"Created collection: {collection_name}")
     
     async def add_face(self, face_data: FaceData) -> str:
         """Add a face to the vector store.
@@ -63,7 +57,7 @@ class QdrantFaceStore(IFaceVectorStore):
         )
         
         await self.client.upsert(
-            collection_name=self.COLLECTION_NAME,
+            collection_name=self.collection_name,
             points=[point],
         )
         
@@ -82,7 +76,7 @@ class QdrantFaceStore(IFaceVectorStore):
             Optional[Tuple[FaceData, float]]: Matching face data and score, or None
         """
         response = await self.client.query_points(
-            collection_name=self.COLLECTION_NAME,
+            collection_name=self.collection_name,
             query=embedding,
             limit=1,
             score_threshold=threshold,
@@ -115,7 +109,7 @@ class QdrantFaceStore(IFaceVectorStore):
         
         while True:
             records, next_offset = await self.client.scroll(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=self.collection_name,
                 limit=100,
                 offset=offset,
                 with_payload=True,
@@ -147,7 +141,7 @@ class QdrantFaceStore(IFaceVectorStore):
         """
         try:
             await self.client.delete(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=self.collection_name,
                 points_selector=[face_id],
             )
             return True
@@ -164,7 +158,7 @@ class QdrantFaceStore(IFaceVectorStore):
             Optional[FaceData]: Face data if found
         """
         results, _ = await self.client.scroll(
-            collection_name=self.COLLECTION_NAME,
+            collection_name=self.collection_name,
             scroll_filter=Filter(
                 must=[
                     FieldCondition(
@@ -202,7 +196,7 @@ class QdrantFaceStore(IFaceVectorStore):
         """
         try:
             await self.client.set_payload(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=self.collection_name,
                 payload={"name": name, "nim": nim},
                 points=[face_id],
             )

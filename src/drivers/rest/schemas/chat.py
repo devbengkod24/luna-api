@@ -1,23 +1,23 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
+from typing import Literal
 
 class UserContextSchema(BaseModel):
     """User context schema."""
     emotion: str = Field(default="neutral", description="User emotion state")
-    name: Optional[str] = Field(default=None, description="User name")
-    nim: Optional[str] = Field(default=None, description="User NIM")
+    name: str | None = Field(default=None, description="User name")
+    nim: str | None = Field(default=None, description="User NIM")
 
 
 class ChatTextRequest(BaseModel):
     """Request model for text chat."""
-    uuid: Optional[str] = None
+    uuid: str | None = None
     prompt: str
     context: UserContextSchema
 
 
 class ChatAudioRequest(BaseModel):
     """Request model for audio chat."""
-    uuid: Optional[str] = None
+    uuid: str | None = None
     audio: str  # Base64-encoded audio
     context: UserContextSchema
 
@@ -35,7 +35,7 @@ class MessageItem(BaseModel):
     """Response model for message."""
     role: str
     content: str
-    context: Optional[UserContextSchema] = None
+    context: UserContextSchema | None = None
 
 # chat/history Response Schema
 class ChatSessionDetail(BaseModel):
@@ -48,9 +48,9 @@ class ChatSessionDetail(BaseModel):
 class SSEEvent(BaseModel):
     """Event for SSE."""
     type: Literal["log", "token", "done", "error", "transcript"]
-    content: Optional[str] = None
-    session_uuid: Optional[str] = None
-    finish_reason: Optional[str] = None
+    content: str | None = None
+    session_uuid: str | None = None
+    finish_reason: str | None = None
     
     def to_sse(self) -> str:
         """Convert to SSE format."""

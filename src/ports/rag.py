@@ -1,10 +1,9 @@
 """RAG (Retrieval Augmented Generation) port interfaces."""
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Dict
 from pathlib import Path
 
-from src.domain.entities.document import Document, DocumentMetadata, RetrievalResult, NodeMetadata
-
+from src.domain.entities.knowledge import RetrievalResult
 
 class IRAGAdapter(ABC):
     """Interface for RAG adapter using vector database."""
@@ -25,18 +24,12 @@ class IRAGAdapter(ABC):
     @abstractmethod
     async def add_document(
         self,
-        document_id: str,
         file_path: Path,
-        metadata: DocumentMetadata,
-        node_metadata_template: Optional[NodeMetadata] = None,
     ) -> int:
         """Add a document to the vector store.
         
         Args:
-            document_id: Unique document ID
             file_path: Path to the document file
-            metadata: Document metadata
-            node_metadata_template: Template for node metadata (optional)
             
         Returns:
             int: Number of chunks created
@@ -63,71 +56,12 @@ class IRAGAdapter(ABC):
             List[str]: List of document IDs
         """
         pass
-
-
-class IDocumentStorage(ABC):
-    """Interface for document storage (file system)."""
     
     @abstractmethod
-    async def save_file(
-        self,
-        file_content: bytes,
-        filename: str,
-        document_id: str,
-    ) -> Path:
-        """Save uploaded file to storage.
-        
-        Args:
-            file_content: File content as bytes
-            filename: Original filename
-            document_id: Unique document ID
-            
-        Returns:
-            Path: Path where file was saved
-        """
-        pass
-    
-    @abstractmethod
-    async def delete_file(self, file_path: Path) -> bool:
-        """Delete file from storage.
-        
-        Args:
-            file_path: Path to file
-            
-        Returns:
-            bool: True if deleted successfully
-        """
-        pass
-    
-    @abstractmethod
-    async def get_document_metadata(self, document_id: str) -> Optional[DocumentMetadata]:
-        """Get document metadata.
-        
-        Args:
-            document_id: Document ID
-            
-        Returns:
-            Optional[DocumentMetadata]: Document metadata or None
-        """
-        pass
-    
-    @abstractmethod
-    async def list_all_documents(self) -> List[Document]:
-        """List all documents in storage.
+    async def get_all_documents_metadata(self) -> List[Dict]:
+        """Get all documents with their metadata from vector store.
         
         Returns:
-            List[Document]: List of all documents
-        """
-        pass
-    
-    @abstractmethod
-    async def file_exists(self, document_id: str) -> bool:
-        """Check if document file exists.
-        
-        Args:
-            document_id: Document ID
-            
-        Returns:
-            bool: True if file exists
+            List[Dict]: List of documents with metadata (document_id, file_name, file_type, file_size, creation_date)
         """
         pass

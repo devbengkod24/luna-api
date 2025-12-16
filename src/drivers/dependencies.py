@@ -7,14 +7,16 @@ from src.adapters.postgres.connection import DatabaseConnection
 from src.adapters.postgres.chat_repository import ChatRepository
 from src.adapters.ollama.llm_adapter import LLMAdapter
 from src.adapters.qdrant.rag_adapter import RAGAdapter
-from src.adapters.qdrant.face_store import QdrantFaceStore
-from src.adapters.filesystem.document_storage import FileSystemDocumentStorage
-from src.adapters.speech.stt_adapter import STTAdapter
+from src.adapters.qdrant.face_store import FaceStore
+from src.adapters.filesystem.storage_adapter import FileStorageAdapter
+from src.adapters.whisper.stt_adapter import STTAdapter
 from src.adapters.insightface.face_recognition_adapter import FaceRecognitionAdapter
 from src.adapters.bytetrack.tracker_adapter import TrackerAdapter
 from src.adapters.langchain.agent_adapter import AgentAdapter
 from src.adapters.huggingface.emotion_adapter import EmotionDetectionAdapter
+from src.domain.entities.storage import StorageType
 from src.config import settings
+from pathlib import Path
 from src.use_cases.chat_text import ChatTextUseCase
 from src.use_cases.chat_speech import ChatSpeechUseCase
 from src.use_cases.chat_history import GetChatHistoryUseCase, GetChatSessionUseCase
@@ -24,19 +26,21 @@ from src.use_cases.faces import (
     GetFacesUseCase,
     DeleteFaceUseCase,
 )
-from src.use_cases.document_management import (
-    UploadDocumentUseCase,
-    ListDocumentsUseCase,
-    DeleteDocumentUseCase,
+from src.use_cases.knowledge import (
+    UploadKnowledgeUseCase,
+    ListKnowledgeUseCase,
+    DownloadKnowledgeUseCase,
+    DeleteKnowledgeUseCase,
 )
 # Global instances (initialized in main.py)
 db_connection: DatabaseConnection | None = None
 llm_adapter: LLMAdapter | None = None
 rag_adapter: RAGAdapter | None = None
-document_storage: FileSystemDocumentStorage | None = None
+rag_storage: FileStorageAdapter | None = None
+faces_storage: FileStorageAdapter | None = None
 stt_adapter: STTAdapter | None = None
 face_recognition_adapter: FaceRecognitionAdapter | None = None
-face_store: QdrantFaceStore | None = None
+face_store: FaceStore | None = None
 tracker_adapter: TrackerAdapter | None = None
 emotion_detection_adapter: EmotionDetectionAdapter | None = None
 agent_adapter: AgentAdapter | None = None
@@ -63,7 +67,7 @@ def initialize_dependencies(
     Returns:
         None
     """
-    global db_connection, llm_adapter, rag_adapter, document_storage
+    global db_connection, llm_adapter, rag_adapter, rag_storage, faces_storage
     global stt_adapter
     global face_recognition_adapter, face_store, tracker_adapter
     global emotion_detection_adapter, agent_adapter
@@ -72,8 +76,21 @@ def initialize_dependencies(
         db_connection = DatabaseConnection(url=database_url)
         llm_adapter = LLMAdapter(model=llm_model)
         rag_adapter = RAGAdapter()
-        # document_storage = FileSystemDocumentStorage()
-        stt_adapter = STTAdapter()
+        
+        # Initialize file storage and metadata storage for RAG documents
+        rag_storage = FileStorageAdapter(
+            storage_type=StorageType.RAG,   
+        )
+        faces_storage = FileStorageAdapter(
+            storage_type=StorageType.FACES
+        )
+        
+        stt_adapter = STTAdapter(
+            model_size=settings.whisper_model, 
+            device=gpu_device, 
+            compute_type="int8"
+        )
+        
         agent_adapter = AgentAdapter(
             llm_adapter=llm_adapter,
             rag_adapter=rag_adapter,
@@ -86,7 +103,7 @@ def initialize_dependencies(
                     model_name=face_recognition_model,
                     ctx_id=gpu_device,
                 )
-                face_store = QdrantFaceStore()
+                face_store = FaceStore()
                 
                 tracker_adapter = TrackerAdapter(
                     max_age=settings.tracker_max_age,
@@ -111,16 +128,34 @@ def initialize_dependencies(
         print(f"Error initializing dependencies: {e}")
         raise
 
-async def initialize_face_embedding(run_seed: bool = False):
+async def initialize_face_store(run_seed: bool = False):
     if not face_store:
         raise RuntimeError("Face store not initialized")
-    await face_store.initialize()
+    await face_store.initialize(collection_name=settings.faces_collection_name)
 
     if run_seed:
         if not face_recognition_adapter:
             raise RuntimeError("Face recognition not initialized")
-        use_case = RegisterFacesUseCase(face_recognition_adapter, face_store)
-        await use_case.initialize_from_storage()
+        use_case = RegisterFacesUseCase(face_recognition_adapter, face_store, faces_storage)
+        await use_case.seed_faces(
+            storage_path=settings.faces_storage_path, 
+            supported_extensions=settings.faces_allowed_extensions
+        )
+        print("Faces initialized successfully")
+    else:
+        print("Faces disabled")
+
+async def initialize_rag_store(run_seed: bool = False):
+    if not rag_adapter:
+        raise RuntimeError("RAG adapter not initialized")
+    await rag_adapter.initialize()
+
+    if run_seed:
+        use_case = UploadKnowledgeUseCase(rag_storage, rag_adapter)
+        await use_case.seed_knowledge()
+        print("Knowledge initialized successfully")
+    else:
+        print("Knowledge disabled")
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Get database session."""
@@ -194,7 +229,7 @@ async def get_register_faces_use_case() -> RegisterFacesUseCase:
         raise RuntimeError("Face recognition not initialized")
     if not face_store:
         raise RuntimeError("Face store not initialized")
-    return RegisterFacesUseCase(face_recognition_adapter, face_store)
+    return RegisterFacesUseCase(face_recognition_adapter, face_store, faces_storage)
 
 
 async def get_list_faces_use_case() -> GetFacesUseCase:
@@ -211,22 +246,40 @@ async def get_delete_face_use_case() -> DeleteFaceUseCase:
     return DeleteFaceUseCase(face_store=face_store)
 
 # Document management dependencies
-async def get_upload_document_use_case() -> UploadDocumentUseCase:
-    """Get upload document use case."""
-    if not rag_adapter or not document_storage:
-        raise RuntimeError("RAG or document storage not initialized")
-    return UploadDocumentUseCase(rag_adapter, document_storage)
+async def get_upload_knowledge_use_case() -> UploadKnowledgeUseCase:
+    """Get upload knowledge use case."""
+    if not file_storage or not rag_adapter:
+        raise RuntimeError("File storage or RAG adapter not initialized")
+    return UploadKnowledgeUseCase(
+        file_storage=file_storage,
+        rag_adapter=rag_adapter,
+    )
 
 
-async def get_list_documents_use_case() -> ListDocumentsUseCase:
-    """Get list documents use case."""
-    if not document_storage:
-        raise RuntimeError("Document storage not initialized")
-    return ListDocumentsUseCase(document_storage)
+async def get_list_knowledge_use_case() -> ListKnowledgeUseCase:
+    """Get list knowledge use case."""
+    if not rag_adapter:
+        raise RuntimeError("RAG adapter not initialized")
+    return ListKnowledgeUseCase(
+        rag_adapter=rag_adapter,
+    )
 
 
-async def get_delete_document_use_case() -> DeleteDocumentUseCase:
-    """Get delete document use case."""
-    if not rag_adapter or not document_storage:
-        raise RuntimeError("RAG or document storage not initialized")
-    return DeleteDocumentUseCase(rag_adapter, document_storage)
+async def get_download_knowledge_use_case() -> DownloadKnowledgeUseCase:
+    """Get download knowledge use case."""
+    if not file_storage or not rag_adapter:
+        raise RuntimeError("File storage or RAG adapter not initialized")
+    return DownloadKnowledgeUseCase(
+        file_storage=file_storage,
+        rag_adapter=rag_adapter,
+    )
+
+
+async def get_delete_knowledge_use_case() -> DeleteKnowledgeUseCase:
+    """Get delete knowledge use case."""
+    if not file_storage or not rag_adapter:
+        raise RuntimeError("File storage or RAG adapter not initialized")
+    return DeleteKnowledgeUseCase(
+        file_storage=file_storage,
+        rag_adapter=rag_adapter,
+    )

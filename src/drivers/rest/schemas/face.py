@@ -1,16 +1,85 @@
-from pydantic import BaseModel
-from typing import List, Optional
+import base64
+import re
+
+from pydantic import BaseModel, Field, field_validator
+
+from src.config import settings
+
 
 class RegisterFaceItem(BaseModel):
     """Single face item for registration."""
-    name: str
-    nim: str
-    image_base64: str
+    name: str = Field(
+        ..., 
+        min_length=1, 
+        max_length=200,
+        description="Name"
+    )
+    nim: str = Field(
+        ..., 
+        min_length=14, 
+        max_length=14,
+        description="Student NIM"
+    )
+    image_base64: str = Field(
+        ..., 
+        max_length=settings.face_max_image_size,
+        description="Base64 encoded image of the face"
+    )
+
+    @field_validator('nim')
+    @classmethod
+    def validate_nim_format(cls, v: str) -> str:
+        """Validate NIM format."""
+        if not v:
+            raise ValueError("NIM cannot be empty")
+        
+        nim_pattern = r'^[A-Z][0-9]{2}\.[0-9]{4}\.[0-9]{5}$'
+        
+        if not re.match(nim_pattern, v.strip()):
+            raise ValueError(
+                "NIM format is invalid."
+            )
+        
+        return v.strip()
+
+    @field_validator('image_base64')
+    @classmethod
+    def validate_base64_image(cls, v: str) -> str:
+        """Validate base64 image format and size."""
+        if not v:
+            raise ValueError("Image data is required")
+        
+        if len(v) > settings.face_max_image_size:
+            max_mb = settings.face_max_image_size / (1024 * 1024)
+            raise ValueError(f"Image too large (max {max_mb}MB)")
+        
+        try:
+            base64.b64decode(v, validate=True)
+        except Exception as e:
+            raise ValueError(f"Invalid base64 format: {str(e)}")
+        
+        return v
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Strip whitespace from name."""
+        if not v:
+            raise ValueError("Name is required")
+        return v.strip()
 
 class RegisterFaceRequest(BaseModel):
     """Request model for face registration (supports multiple faces)."""
-    faces: List[RegisterFaceItem]
-    skip_existing: bool = True
+    faces: list[RegisterFaceItem] = Field(
+        ..., 
+        min_length=1,
+        max_length=settings.face_max_batch_size,
+        description=f"List of faces to register (minimum 1, maximum {settings.face_max_batch_size})"
+    )
+    skip_existing: bool = Field(
+        True, 
+        description="Skip faces with existing NIM if True, update if False"
+    )
 
 class FaceResponse(BaseModel):
     """Response model for a registered face."""
@@ -21,14 +90,14 @@ class FaceResponse(BaseModel):
 class SingleRegisterFaceResult(BaseModel):
     """Result for a single face registration attempt."""
     success: bool
-    face_id: Optional[str] = None
-    name: Optional[str] = None
-    nim: Optional[str] = None
-    message: Optional[str] = None
+    face_id: str | None = None
+    name: str | None = None
+    nim: str | None = None
+    message: str | None = None
 
 class RegisterFacesResponse(BaseModel):
     """Response model for face registration (one or many faces)."""
     total: int
     success_count: int
     failed_count: int
-    results: List[SingleRegisterFaceResult]
+    results: list[SingleRegisterFaceResult]

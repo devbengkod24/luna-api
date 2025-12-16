@@ -1,64 +1,44 @@
 """Face registration use cases."""
+
 import base64
-from typing import List
 import logging
 from pathlib import Path
+
 import aiofiles
 
-from src.ports.vision import IFaceRecognitionAdapter, IFaceVectorStore
+from src.config import settings
 from src.domain.entities.vision import (
     FaceData,
     FaceRegistrationResult,
     RegisterFaceInput,
 )
+from src.ports.storage import IFileStorage
+from src.ports.vision import IFaceRecognitionAdapter, IFaceVectorStore
 
-MAX_BASE64_SIZE = 10 * 1024 * 1024
-MAX_EMBEDDING_LENGTH = 512
-MIN_EMBEDDING_LENGTH = 128 
 
 logger = logging.getLogger(__name__)
 
+
 class RegisterFacesUseCase:
-    """Use case for registering one or multiple faces.
-    
-    This is the main use case for face registration, supporting both
-    single and batch registration through the same interface.
-    """
-    
+    """Use case for registering one or multiple faces."""
+
     def __init__(
         self,
         face_recognition: IFaceRecognitionAdapter,
         face_store: IFaceVectorStore,
+        file_storage: IFileStorage,
     ):
-        """Initialize use case.
-        
-        Args:
-            face_recognition: Face recognition adapter
-            face_store: Face vector store
-        """
+        """Initialize use case."""
         self.face_recognition = face_recognition
         self.face_store = face_store
+        self.file_storage = file_storage
     
     async def execute(
         self,
-        faces: List[RegisterFaceInput],
+        faces: list[RegisterFaceInput],
         skip_existing: bool = True,
-    ) -> List[FaceRegistrationResult]:
-        """Register one or multiple faces.
-        
-        Accepts a list of faces and registers each one. Can handle both
-        single face registration (list with 1 item) and batch registration.
-        
-        Args:
-            faces: List of faces to register (can be a single item)
-            skip_existing: If True, skip faces with existing NIM; if False, update them
-            
-        Returns:
-            List[FaceRegistrationResult]: Results for each face registration attempt
-        """
-        if not faces:
-            raise ValueError("Faces list cannot be empty")
-        
+    ) -> list[FaceRegistrationResult]:
+        """Register one or multiple faces."""
         logger.info(f"Registering {len(faces)} face(s), skip_existing={skip_existing}")
 
         results = []
@@ -91,27 +71,7 @@ class RegisterFacesUseCase:
         image_base64: str,
         update_if_exists: bool = False,
     ) -> FaceRegistrationResult:
-        """Register a single face (internal method).
-        
-        Workflow:
-        1. Decode base64 image
-        2. Detect faces in the image
-        3. Validate exactly one face is detected
-        4. Extract face embedding
-        5. Check if NIM already exists
-        6. Store or update face data in vector store
-        
-        Args:
-            name: Person's name
-            nim: Person's NIM (student ID)
-            image_base64: Base64-encoded image
-            update_if_exists: If True, update existing face; if False, skip
-            
-        Returns:
-            FaceRegistrationResult: Result with success status and details
-        """
-        name = name.strip() if name else ""
-        nim = nim.strip() if nim else ""
+        """Register a single face."""
         # Step 1: Decode image
         try:
             image_bytes = base64.b64decode(image_base64, validate=True)
@@ -129,12 +89,9 @@ class RegisterFacesUseCase:
             )
         except Exception as e:
             logger.error(f"Unexpected error decoding base64 for {name} ({nim}): {e}", exc_info=True)
-            return FaceRegistrationResult(
-                success=False,
-                message="Failed to decode image"
-            )
+            return FaceRegistrationResult(success=False, message="Failed to decode image")
         
-        # Step 2 & 3: Detect faces and validate
+        # Step 2: Detect faces and validate
         try:
             detected_faces = self.face_recognition.detect_faces(
                 image_bytes,
@@ -160,44 +117,41 @@ class RegisterFacesUseCase:
             )
         
         if not detected_faces:
-            return FaceRegistrationResult(
-                success=False,
-                message="No face detected in the image"
-            )
+            return FaceRegistrationResult(success=False, message="No face detected in the image")
         
         if len(detected_faces) > 1:
             return FaceRegistrationResult(
                 success=False,
-                message=f"Multiple faces detected ({len(detected_faces)}). Please provide an image with exactly one face."
+                message=(
+                    f"Multiple faces detected ({len(detected_faces)}). "
+                    "Please provide an image with exactly one face."
+                ),
             )
         
-        # Step 4: Extract embedding
+        # Step 3: Extract embedding
         detected_face = detected_faces[0]
         embedding = detected_face.embedding
         
         if not embedding:
             logger.warning(f"Empty embedding for {name} ({nim})")
-            return FaceRegistrationResult(
-                success=False,
-                message="Failed to extract face embedding"
+            return FaceRegistrationResult(success=False, message="Failed to extract face embedding")
+        
+        # Step 4: Save original face image to file storage
+        try:
+            name_clean = name.replace(" ", "_")
+            filename = f"{name_clean}__{nim}.jpg"
+            await self.file_storage.save_file(
+                file_content=image_bytes,
+                filename=filename,
+            )
+            logger.debug(f"Saved face image to storage as {filename}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to save face image for {name} ({nim}) to storage: {e}",
+                exc_info=True,
             )
         
-        # Validate embedding length
-        if not isinstance(embedding, list) or len(embedding) < MIN_EMBEDDING_LENGTH:
-            logger.warning(f"Invalid embedding length for {name} ({nim}): {len(embedding) if isinstance(embedding, list) else 'not a list'}")
-            return FaceRegistrationResult(
-                success=False,
-                message="Invalid face embedding extracted"
-            )
-        
-        if len(embedding) > MAX_EMBEDDING_LENGTH:
-            logger.warning(f"Embedding too long for {name} ({nim}): {len(embedding)}")
-            return FaceRegistrationResult(
-                success=False,
-                message="Invalid face embedding extracted"
-            )
-        
-        # Step 5: Check if NIM already exists
+        # Step 6: Check if NIM already exists
         try:
             existing_face = await self.face_store.get_face_by_nim(nim)
         except ValueError as e:
@@ -219,7 +173,7 @@ class RegisterFacesUseCase:
                 message="Database query failed"
             )
         
-        # Step 6: Store or update face data
+        # Step 7: Store or update face data
         try:
             if existing_face:
                 if not update_if_exists:
@@ -228,10 +182,9 @@ class RegisterFacesUseCase:
                         face_id=existing_face.id,
                         name=existing_face.name,
                         nim=existing_face.nim,
-                        message=f"Face with NIM {nim} already exists. Use skip_existing=False to update."
+                        message=f"Face with NIM {nim} already exists."
                     )
                 
-                # Update existing face
                 face_data = FaceData(
                     id=existing_face.id,
                     name=name,
@@ -250,7 +203,6 @@ class RegisterFacesUseCase:
                     message="Face updated successfully"
                 )
             else:
-                # Create new face
                 face_data = FaceData.create(
                     name=name,
                     nim=nim,
@@ -286,23 +238,13 @@ class RegisterFacesUseCase:
                 message="Failed to store face data"
             )
     
-    async def initialize_from_storage(
-        self, 
-        storage_path: str = "storage/faces"
+    async def seed_faces(
+        self,
+        storage_path: str,
+        supported_extensions: set[str],
     ) -> tuple[int, int, list[str]]:
-        """Initialize faces from storage folder.
+        """Initialize faces from storage folder."""
         
-        Scans the storage folder and registers all face images found.
-        Filename format: Name__NIM.ext (double underscore separator)
-        
-        Args:
-            storage_path: Path to folder containing face images
-            
-        Returns:
-            tuple[int, int, list[str]]: (total_found, success_count, error_messages)
-        """
-        
-        SUPPORTED_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
         storage = Path(storage_path)
         
         logger.info(f"Scanning for faces in: {storage}")
@@ -317,7 +259,6 @@ class RegisterFacesUseCase:
             logger.error(error_msg)
             return (0, 0, [error_msg])
         
-        # Scan for image files
         face_inputs = []
         errors = []
         
@@ -325,15 +266,13 @@ class RegisterFacesUseCase:
             if not file_path.is_file():
                 continue
             
-            if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            if file_path.suffix.lower() not in supported_extensions:
                 logger.debug(f"Skipping unsupported file: {file_path.name}")
                 continue
             
             try:
-                # Parse filename: Name__NIM
                 name, nim = self._parse_filename(file_path.stem)
                 
-                # Read and encode image using async I/O
                 async with aiofiles.open(file_path, 'rb') as f:
                     image_bytes = await f.read()
                     
@@ -343,8 +282,7 @@ class RegisterFacesUseCase:
                         logger.warning(error_msg)
                         continue
                     
-                    # Check file size before encoding
-                    if len(image_bytes) > MAX_BASE64_SIZE:
+                    if len(image_bytes) > settings.face_max_image_size:
                         error_msg = f"File too large: {file_path.name} ({len(image_bytes)} bytes)"
                         errors.append(error_msg)
                         logger.warning(error_msg)
@@ -379,14 +317,12 @@ class RegisterFacesUseCase:
         
         logger.info(f"Found {total_found} face image(s) to register")
         
-        # Register all faces (skip existing by default)
         try:
             results = await self.execute(
                 faces=face_inputs,
                 skip_existing=True,
             )
             
-            # Count successes and collect errors
             success_count = 0
             for i, result in enumerate(results):
                 if result.success:
@@ -413,21 +349,7 @@ class RegisterFacesUseCase:
             return (total_found, 0, errors)
     
     def _parse_filename(self, filename: str) -> tuple[str, str]:
-        """Parse filename to extract name and NIM.
-        
-        Expected format: Name_With_Underscores__NIM
-        - Underscores in name represent spaces
-        - Double underscore separates name from NIM
-        
-        Args:
-            filename: Filename without extension
-            
-        Returns:
-            tuple[str, str]: (name, nim)
-            
-        Raises:
-            ValueError: If filename format is invalid
-        """
+        """Parse filename to extract name and NIM."""
         if not filename or not filename.strip():
             raise ValueError("Filename cannot be empty")
         
@@ -437,7 +359,6 @@ class RegisterFacesUseCase:
                 "Use double underscore to separate name from NIM."
             )
         
-        # Split by double underscore
         parts = filename.split('__')
         
         if len(parts) != 2:
@@ -448,7 +369,6 @@ class RegisterFacesUseCase:
         
         name_part, nim_part = parts
         
-        # Convert underscores to spaces in name
         name = name_part.replace('_', ' ').strip()
         nim = nim_part.strip()
         
@@ -465,19 +385,11 @@ class GetFacesUseCase:
     """Use case for getting all registered faces."""
     
     def __init__(self, face_store: IFaceVectorStore):
-        """Initialize use case.
-        
-        Args:
-            face_store: Face vector store
-        """
+        """Initialize use case."""
         self.face_store = face_store
     
-    async def execute(self) -> List[FaceData]:
-        """Get all registered faces.
-        
-        Returns:
-            List[FaceData]: List of registered faces
-        """
+    async def execute(self) -> list[FaceData]:
+        """Get all registered faces."""
         try:
             faces = await self.face_store.get_all_faces()
             logger.info(f"Retrieved {len(faces)} registered face(s)")
@@ -494,22 +406,11 @@ class DeleteFaceUseCase:
     """Use case for deleting a registered face."""
     
     def __init__(self, face_store: IFaceVectorStore):
-        """Initialize use case.
-        
-        Args:
-            face_store: Face vector store
-        """
+        """Initialize use case."""
         self.face_store = face_store
     
     async def execute(self, face_id: str) -> bool:
-        """Delete a registered face.
-        
-        Args:
-            face_id: Face ID to delete
-            
-        Returns:
-            bool: True if deleted successfully
-        """
+        """Delete a registered face."""
         if not face_id or not face_id.strip():
             raise ValueError("Face ID cannot be empty")
         

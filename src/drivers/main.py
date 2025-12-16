@@ -31,11 +31,9 @@ async def lifespan(app: FastAPI):
         # Initialize database tables (optional - use alembic in production)
         # await dependencies.db_connection.create_tables()
         
-        # Initialize Qdrant collections
-        await dependencies.rag_adapter.initialize()
-        
         # Initialize face store collection
-        await dependencies.initialize_face_embedding(run_seed=settings.seed_faces)
+        await dependencies.initialize_face_store(run_seed=settings.seed_faces)
+        await dependencies.initialize_rag_store(run_seed=settings.seed_knowledge)
         
         # Initialize vision use case for WebSocket
         # vision_use_case = dependencies.get_vision_use_case()
