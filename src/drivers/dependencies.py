@@ -121,7 +121,7 @@ async def initialize_face_store(run_seed: bool = False):
             raise RuntimeError("Face recognition not initialized")
         use_case = RegisterFacesUseCase(face_recognition_adapter, face_store, faces_storage)
         await use_case.seed_faces(
-            storage_path=settings.faces_storage_path, 
+            storage_path=settings.faces_dir, 
             supported_extensions=settings.faces_allowed_extensions
         )
         print("Faces initialized successfully")

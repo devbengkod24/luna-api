@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     embedding_model: str = "embeddinggemma:latest"
     reranker_model: str = "jina-reranker-v3-Q4_K_M.gguf"
     llm_temperature: float = 0.7
-    web_search_enabled: bool = False
+    web_search_enabled: bool = True
     
     # Ollama
     ollama_host: str = "ollama"
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     
     # Emotion Detection
     enable_emotion_detection: bool = True
-    seed_faces: bool = False
+    seed_faces: bool = True
     seed_knowledge: bool = False
     
     # Speech-to-Text (Faster Whisper)

@@ -26,9 +26,11 @@ class FaceStore(IFaceVectorStore):
             grpc_port=settings.qdrant_grpc_port,
             prefer_grpc=True,
         )
+        self.collection_name = settings.faces_collection_name
     
     async def initialize(self, collection_name: str) -> None:
         """Initialize the face embeddings collection."""
+        
         collections = await self.client.get_collections()
         collection_names = [c.name for c in collections.collections]
         if collection_name not in collection_names:

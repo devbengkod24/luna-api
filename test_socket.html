@@ -411,6 +411,8 @@
 
       async start() {
         try {
+          console.log('[Start] Requesting camera access...');
+          
           // Request camera access
           this.stream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
@@ -419,11 +421,14 @@
             } 
           });
           
+          console.log('[Start] Camera access granted');
+          
           this.video.srcObject = this.stream;
           
           // Wait for video to be ready
           await new Promise((resolve) => {
             this.video.onloadedmetadata = () => {
+              console.log(`[Start] Video ready: ${this.video.videoWidth}x${this.video.videoHeight}`);
               this.video.play();
               resolve();
             };
@@ -439,10 +444,11 @@
           document.getElementById('startBtn').disabled = true;
           document.getElementById('stopBtn').disabled = false;
           
+          console.log('[Start] Stream started successfully');
           this.log('Stream started successfully', 'success');
         } catch (error) {
+          console.error('[Start] Error starting stream:', error);
           this.log(`Error starting stream: ${error.message}`, 'error');
-          console.error('Error starting stream:', error);
         }
       }
 
@@ -479,19 +485,22 @@
 
       connectWebSocket() {
         const wsUrl = 'ws://localhost:8000/v1/vision/stream';
+        console.log(`[WebSocket] Connecting to ${wsUrl}...`);
         this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
+          console.log('[WebSocket] Connection established');
           this.updateConnectionStatus(true);
           this.log('WebSocket connected', 'success');
         };
 
         this.ws.onerror = (error) => {
+          console.error('[WebSocket] Connection error:', error);
           this.log(`WebSocket error: ${error}`, 'error');
-          console.error('WebSocket error:', error);
         };
 
-        this.ws.onclose = () => {
+        this.ws.onclose = (event) => {
+          console.log(`[WebSocket] Connection closed. Code: ${event.code}, Reason: ${event.reason}`);
           this.updateConnectionStatus(false);
           this.log('WebSocket disconnected', 'error');
         };
@@ -526,7 +535,38 @@
         try {
           const data = JSON.parse(e.data);
           
-          if (data.event === 'vision_update' && data.payload && data.payload.results) {
+          // Log all incoming messages
+          console.log('[WebSocket] Received message:', data);
+          
+          if (data.event === 'error') {
+            console.error('[WebSocket] Server error:', data.message);
+            this.log(`Server error: ${data.message}`, 'error');
+            return;
+          }
+          
+          if (data.event === 'ping') {
+            console.log('[WebSocket] Ping received');
+            return;
+          }
+          
+          if (data.event === 'vision_update') {
+            console.log('[Vision] Vision update received');
+            
+            if (!data.payload) {
+              console.warn('[Vision] No payload in vision_update');
+              this.log('No payload in vision_update', 'error');
+              return;
+            }
+            
+            if (!data.payload.results) {
+              console.warn('[Vision] No results in payload');
+              this.log('No results in payload', 'error');
+              return;
+            }
+            
+            const results = data.payload.results;
+            console.log(`[Vision] Received ${results.length} detection(s):`, results);
+            
             const now = Date.now();
             this.stats.receivedFrames++;
             this.stats.receivedTimestamps.push(now);
@@ -539,25 +579,38 @@
               if (this.stats.latencies.length > 30) {
                 this.stats.latencies.shift();
               }
+              console.log(`[Vision] Latency: ${latency}ms`);
             }
             
-            this.stats.detections = data.payload.results.length;
+            this.stats.detections = results.length;
+            this.log(`Received ${results.length} detection(s)`, results.length > 0 ? 'success' : 'info');
+            
+            if (results.length === 0) {
+              console.log('[Vision] No faces detected, clearing overlay');
+              this.overlayCtx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+              return;
+            }
             
             // Update overlay
             this.updateOverlaySize();
-            this.drawBoundingBoxes(data.payload.results);
+            this.drawBoundingBoxes(results);
           }
         } catch (err) {
+          console.error('[WebSocket] Error parsing message:', err, 'Raw data:', e.data);
           this.log(`Error parsing message: ${err.message}`, 'error');
-          console.error('Error parsing message:', err);
         }
       }
 
       startFrameCapture() {
+        console.log(`[Capture] Starting frame capture at ${this.currentFps} FPS (interval: ${this.frameIntervalMs}ms)`);
         let lastFrameTime = 0;
         
         const captureFrame = (currentTime) => {
+          // Jangan stop loop! Terus jalankan requestAnimationFrame
+          
+          // Check jika stream atau ws belum ready, skip frame ini
           if (!this.stream || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            requestAnimationFrame(captureFrame); // ← TETAP LOOP!
             return;
           }
 
@@ -581,27 +634,41 @@
 
       captureAndSendFrame() {
         if (this.video.readyState !== this.video.HAVE_ENOUGH_DATA) {
+          console.warn('[Capture] Video not ready');
           return;
         }
 
         const now = Date.now();
         this.canvas.width = this.video.videoWidth;
         this.canvas.height = this.video.videoHeight;
+        
+        console.log(`[Capture] Canvas size: ${this.canvas.width}x${this.canvas.height}`);
+        
         this.ctx.drawImage(this.video, 0, 0);
 
         this.canvas.toBlob((blob) => {
-          if (!blob || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+          if (!blob) {
+            console.error('[Capture] Failed to create blob');
+            return;
+          }
+          
+          if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn('[Capture] WebSocket not ready');
             return;
           }
 
           const reader = new FileReader();
           reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
-            this.ws.send(JSON.stringify({ 
+            const payload = { 
               event: 'webcam_frame', 
               data: base64,
               timestamp: now
-            }));
+            };
+            
+            console.log(`[Capture] Sending frame #${this.stats.sentFrames + 1}, size: ${blob.size} bytes, base64 length: ${base64.length}`);
+            
+            this.ws.send(JSON.stringify(payload));
             
             this.stats.sentFrames++;
             this.stats.sentTimestamps.push(now);
@@ -614,33 +681,57 @@
       updateOverlaySize() {
         if (this.overlay.width !== this.video.videoWidth || 
             this.overlay.height !== this.video.videoHeight) {
+          console.log(`[Overlay] Resizing overlay from ${this.overlay.width}x${this.overlay.height} to ${this.video.videoWidth}x${this.video.videoHeight}`);
           this.overlay.width = this.video.videoWidth;
           this.overlay.height = this.video.videoHeight;
         }
       }
 
       drawBoundingBoxes(results) {
+        console.log(`[Draw] Drawing ${results.length} bounding boxes`);
+        console.log('[Draw] Overlay canvas size:', this.overlay.width, 'x', this.overlay.height);
+        
         this.overlayCtx.clearRect(0, 0, this.overlay.width, this.overlay.height);
         
         if (!results || results.length === 0) {
+          console.log('[Draw] No results to draw');
           return;
         }
 
-        results.forEach(result => {
+        results.forEach((result, index) => {
+          console.log(`[Draw] Processing result #${index + 1}:`, result);
+          
           const bbox = result.bbox || result.box;
           
-          if (!bbox || !Array.isArray(bbox) || bbox.length !== 4) {
+          if (!bbox) {
+            console.warn(`[Draw] Result #${index + 1}: No bbox found`);
             return;
           }
+          
+          if (!Array.isArray(bbox)) {
+            console.warn(`[Draw] Result #${index + 1}: bbox is not an array:`, bbox);
+            return;
+          }
+          
+          if (bbox.length !== 4) {
+            console.warn(`[Draw] Result #${index + 1}: bbox doesn't have 4 elements:`, bbox);
+            return;
+          }
+          
+          console.log(`[Draw] Result #${index + 1}: bbox = [${bbox[0]}, ${bbox[1]}, ${bbox[2]}, ${bbox[3]}]`);
           
           const name = result.name || 'Unknown';
           const emotion = result.emotion || 'neutral';
           const confidence = result.confidence || {};
           
+          console.log(`[Draw] Result #${index + 1}: name="${name}", emotion="${emotion}"`);
+          
           // Draw bounding box
           this.overlayCtx.strokeStyle = '#00ff00';
           this.overlayCtx.lineWidth = 2;
           this.overlayCtx.strokeRect(bbox[0], bbox[1], bbox[2], bbox[3]);
+          
+          console.log(`[Draw] Result #${index + 1}: Rectangle drawn at (${bbox[0]}, ${bbox[1]}) with size ${bbox[2]}x${bbox[3]}`);
           
           // Draw label background
           const labelText = `${name} (${emotion})`;
@@ -655,7 +746,11 @@
           // Draw label text
           this.overlayCtx.fillStyle = '#000000';
           this.overlayCtx.fillText(labelText, bbox[0] + 5, bbox[1] - 5);
+          
+          console.log(`[Draw] Result #${index + 1}: Label "${labelText}" drawn`);
         });
+        
+        console.log('[Draw] Finished drawing all bounding boxes');
       }
 
       calculateFps(timestamps) {
