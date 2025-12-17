@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     qdrant_host: str
     qdrant_grpc_port: int = 6334
     qdrant_api_key: str
-    qdrant_collection_name: str = "vsa_collection"
+    knowledge_collection_name: str = "knowledge_collection"
     faces_collection_name: str = "faces_collection"
 
     # LLM
@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     embedding_model: str = "embeddinggemma:latest"
     reranker_model: str = "jina-reranker-v3-Q4_K_M.gguf"
     llm_temperature: float = 0.7
+    web_search_enabled: bool = False
     
     # Ollama
     ollama_host: str = "ollama"
@@ -79,6 +80,10 @@ class Settings(BaseSettings):
     rag_dir: str = "storage/rag"
     rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
     rag_allowed_extensions: Set[str] = {'.pdf', '.txt', '.docx', '.doc'}
+
+    # Chat
+    chat_max_prompt_length: int = 10000
+    chat_max_audio_base64_size: int = 10 * 1024 * 1024  # 10MB
     
     # ByteTrack Tracker
     tracker_max_age: int = 60  # Max frames to keep track alive without detection
@@ -88,7 +93,7 @@ class Settings(BaseSettings):
     # Emotion Detection
     enable_emotion_detection: bool = True
     seed_faces: bool = False
-    seed_knowledge: bool = True
+    seed_knowledge: bool = False
     
     # Speech-to-Text (Faster Whisper)
     whisper_model: str = "base"  # tiny, base, small, medium, large-v1, large-v2, large-v3

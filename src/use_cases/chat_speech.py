@@ -3,7 +3,7 @@ import uuid
 from typing import AsyncGenerator, Optional, Dict, Any
 
 from src.ports.chat_repository import IChatRepository
-from src.ports.llm import ILLMAdapter
+from src.ports.agent import IAgentAdapter
 from src.ports.speech import ISTTAdapter
 from src.domain.entities.chat import UserContext
 
@@ -14,18 +14,18 @@ class ChatSpeechUseCase:
     def __init__(
         self,
         chat_repository: IChatRepository,
-        llm_adapter: ILLMAdapter,
+        agent_adapter: IAgentAdapter,
         stt_adapter: ISTTAdapter,
     ):
         """Initialize use case with dependencies.
         
         Args:
             chat_repository: Repository for chat persistence
-            llm_adapter: LLM adapter for response generation
+            agent_adapter: Agent adapter for response generation
             stt_adapter: STT adapter for speech transcription
         """
         self.chat_repository = chat_repository
-        self.llm_adapter = llm_adapter
+        self.agent_adapter = agent_adapter
         self.stt_adapter = stt_adapter
 
     def _build_system_prompt(self, context: Dict[str, Any]) -> str:
@@ -118,7 +118,7 @@ Jawab hanya dengan judul saja, tanpa tanda kutip atau penjelasan tambahan."""
             
             # Generate title from transcript
             title_prompt = self._build_title_prompt(transcript)
-            title = await self.llm_adapter.generate_title(title_prompt)
+            title = await self.agent_adapter.generate_title(title_prompt)
             
             session = await self.chat_repository.create_session(
                 uuid=session_uuid,
@@ -151,7 +151,7 @@ Jawab hanya dengan judul saja, tanpa tanda kutip atau penjelasan tambahan."""
         
         # Step 5: Generate streaming response
         full_response = ""
-        async for token in self.llm_adapter.generate_stream(messages_with_system):
+        async for token in self.agent_adapter.generate_stream(messages_with_system):
             full_response += token
             yield {"type": "token", "content": token}
         

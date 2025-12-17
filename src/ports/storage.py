@@ -22,7 +22,7 @@ class IFileStorage(ABC):
         Returns:
             Path: Path where file was saved
         """
-        pass
+        ...
     
     @abstractmethod
     async def delete_file(self, filename: str) -> bool:
@@ -34,7 +34,7 @@ class IFileStorage(ABC):
         Returns:
             bool: True if deleted successfully
         """
-        pass
+        ...
     
     @abstractmethod
     async def file_exists(self, filename: str) -> bool:
@@ -46,7 +46,7 @@ class IFileStorage(ABC):
         Returns:
             bool: True if file exists
         """
-        pass
+        ...
     
     @abstractmethod
     async def list_files(self) -> List[str]:
@@ -55,7 +55,7 @@ class IFileStorage(ABC):
         Returns:
             List[str]: List of filenames
         """
-        pass
+        ...
     
     @abstractmethod
     async def read_file(self, filename: str) -> bytes:
@@ -70,4 +70,4 @@ class IFileStorage(ABC):
         Raises:
             FileNotFoundError: If file does not exist
         """
-        pass
+        ...

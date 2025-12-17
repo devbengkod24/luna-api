@@ -18,6 +18,7 @@ class IAgentAdapter(ABC):
         self,
         messages: List[Dict[str, str]],
         context: Optional[UserContext] = None,
+        system_prompt: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Generate streaming response from agent with tools.
         
@@ -35,4 +36,4 @@ class IAgentAdapter(ABC):
                 - {"type": "done", "finish_reason": "stop|error", ...} - Stream complete
                 - {"type": "error", "content": "..."} - Error occurred
         """
-        pass
+        ...

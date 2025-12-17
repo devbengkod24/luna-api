@@ -154,15 +154,41 @@ cp .env.example .env
 ```
 
 ### 3. Run with Docker Compose
+
+#### CPU Mode (Default)
 ```bash
-docker compose up --build
+# Build dan start dengan CPU
+docker compose up --build -d
 ```
+
+#### GPU Mode
+```bash
+# Build dan start dengan GPU support
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
+```
+
+**Note**: 
+- **CPU**: Menggunakan `Dockerfile.cpu` dengan base image `python:3.11-slim`
+- **GPU**: Menggunakan `Dockerfile.gpu` dengan base image `pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime`
 
 Aplikasi akan berjalan di:
 - **API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
 - **PostgreSQL**: localhost:5432
 - **Qdrant**: http://localhost:6333
+
+#### GPU Support Requirements
+Untuk menggunakan GPU, pastikan:
+1. NVIDIA Docker runtime terinstall (`nvidia-docker2` atau `nvidia-container-toolkit`)
+2. GPU dengan CUDA 12.1 support
+3. Gunakan `docker-compose.gpu.yml` untuk GPU configuration
+
+**GPU Configuration:**
+- **FastAPI**: Menggunakan GPU untuk PyTorch operations (emotion detection, transformers)
+- **Ollama**: Menggunakan GPU untuk menjalankan LLM models dengan akselerasi GPU
+- **Qdrant**: Menggunakan GPU untuk mempercepat vector operations (HNSW index dengan CUDA)
+
+Semua service akan share GPU yang sama (GPU 0) untuk development. Untuk production, sesuaikan `CUDA_VISIBLE_DEVICES` dan `device_ids` sesuai kebutuhan.
 
 ### 4. Run Database Migrations
 ```bash

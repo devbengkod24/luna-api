@@ -1,0 +1,67 @@
+# FastAPI & Server
+fastapi==0.121.3
+uvicorn[standard]==0.38.0
+pydantic==2.12.4
+pydantic-settings==2.12.0
+python-multipart==0.0.20
+
+# Database & ORM
+sqlalchemy==2.0.44
+alembic==1.17.2
+psycopg2-binary==2.9.11
+asyncpg==0.31.0
+
+# Vector DB
+qdrant-client==1.16.1
+
+# WebSocket & SSE
+python-socketio==5.15.0
+sse-starlette==3.0.3
+
+# LLM & Agent
+langchain==1.1.0
+langchain-core==1.1.0
+langchain-ollama==1.0.0
+langgraph==1.0.4
+duckduckgo-search==8.1.1
+langchain-community==0.4.1
+ddgs==9.9.3
+
+# RAG & LlamaIndex
+llama-index==0.14.9
+llama-index-core==0.14.9
+llama-index-vector-stores-qdrant==0.9.0
+llama-index-embeddings-ollama==0.8.4
+llama-index-llms-ollama==0.9.0
+# llama-index-retrievers-bm25==0.6.5
+fastembed==0.7.4
+
+# Reranker
+# safetensors==0.7.0
+# rerank==0.0.1
+
+# Document Loaders
+pypdf==6.4.0
+python-docx==1.2.0
+beautifulsoup4==4.14.3
+html2text==2025.4.15
+python-magic==0.4.27
+
+# Face Recognition
+insightface==0.7.3
+ioutrack-rs==0.4.0
+opencv-python-headless==4.12.0.88
+onnxruntime==1.23.2
+numpy>=1.26.0
+
+# STT
+faster-whisper==1.2.1
+
+# Emotion Detection
+transformers==4.57.3
+tensorflow==2.20.0
+# pillow==11.1.0
+
+# Utils
+python-dotenv==1.2.1
+aiofiles==25.1.0

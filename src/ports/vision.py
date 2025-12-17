@@ -34,7 +34,7 @@ class IFaceRecognitionAdapter(ABC):
         Returns:
             List[DetectedFace]: Detected faces with embeddings
         """
-        pass
+        ...
     
     @abstractmethod
     def detect_faces_only(self, image_bytes: bytes) -> List[FaceDetection]:
@@ -48,7 +48,7 @@ class IFaceRecognitionAdapter(ABC):
         Returns:
             List[FaceDetection]: Detected faces with bbox, confidence, landmark
         """
-        pass
+        ...
     
     @abstractmethod
     def align_face(
@@ -69,7 +69,7 @@ class IFaceRecognitionAdapter(ABC):
         Returns:
             Aligned face image or None if alignment fails
         """
-        pass
+        ...
     
     @abstractmethod
     def extract_embedding(self, aligned_face: np.ndarray) -> Optional[List[float]]:
@@ -81,7 +81,7 @@ class IFaceRecognitionAdapter(ABC):
         Returns:
             512-dimensional embedding vector or None if extraction fails
         """
-        pass
+        ...
     
     @abstractmethod
     def crop_face(
@@ -100,7 +100,7 @@ class IFaceRecognitionAdapter(ABC):
         Returns:
             Cropped face image or None if cropping fails
         """
-        pass
+        ...
 
 
 class IFaceVectorStore(ABC):
@@ -109,7 +109,7 @@ class IFaceVectorStore(ABC):
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the vector store collection."""
-        pass
+        ...
     
     @abstractmethod
     async def add_face(self, face_data: FaceData) -> str:
@@ -121,7 +121,7 @@ class IFaceVectorStore(ABC):
         Returns:
             str: Face ID
         """
-        pass
+        ...
     
     @abstractmethod
     async def search_face(
@@ -136,7 +136,7 @@ class IFaceVectorStore(ABC):
         Returns:
             Optional[Tuple[FaceData, float]]: Matching face data and score, or None
         """
-        pass
+        ...
     
     @abstractmethod
     async def get_all_faces(self) -> List[FaceData]:
@@ -145,7 +145,7 @@ class IFaceVectorStore(ABC):
         Returns:
             List[FaceData]: List of all face data (without embeddings)
         """
-        pass
+        ...
     
     @abstractmethod
     async def delete_face(self, face_id: str) -> bool:
@@ -157,7 +157,7 @@ class IFaceVectorStore(ABC):
         Returns:
             bool: True if deleted successfully
         """
-        pass
+        ...
     
     @abstractmethod
     async def get_face_by_nim(self, nim: str) -> Optional[FaceData]:
@@ -169,7 +169,7 @@ class IFaceVectorStore(ABC):
         Returns:
             Optional[FaceData]: Face data if found
         """
-        pass
+        ...
 
 class ITrackerAdapter(ABC):
     """Interface for object/person tracking across frames."""
@@ -191,17 +191,17 @@ class ITrackerAdapter(ABC):
             - List[TrackedFaceData]: Active tracked faces with associated detection data
             - List[int]: Dead track IDs (tracks that have been lost)
         """
-        pass
+        ...
     
     @abstractmethod
     def reset(self):
         """Reset tracker state (e.g., new video stream)."""
-        pass
+        ...
     
     @abstractmethod
     def get_active_track_ids(self) -> List[int]:
         """Get list of currently active track IDs."""
-        pass
+        ...
 
 class IEmotionDetectionAdapter(ABC):
     """Interface for emotion detection."""
@@ -218,7 +218,7 @@ class IEmotionDetectionAdapter(ABC):
         Returns:
             DetectedEmotion with emotion label and confidence
         """
-        pass
+        ...
     
     @abstractmethod
     def detect_emotion_from_array(
@@ -232,4 +232,4 @@ class IEmotionDetectionAdapter(ABC):
         Returns:
             DetectedEmotion with emotion label and confidence
         """
-        pass
+        ...

@@ -15,7 +15,7 @@ class ISTTAdapter(ABC):
         Returns:
             str: Transcribed text
         """
-        pass
+        ...
 
 
 class ITTSAdapter(ABC):
@@ -31,5 +31,5 @@ class ITTSAdapter(ABC):
         Returns:
             str: Base64-encoded speech audio data
         """
-        pass
+        ...
 

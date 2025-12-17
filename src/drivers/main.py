@@ -20,13 +20,7 @@ async def lifespan(app: FastAPI):
 
     try:
         # Initialize dependencies
-        dependencies.initialize_dependencies(
-            database_url=settings.database_url,
-            face_recognition_model=settings.face_recognition_model,
-            gpu_device=settings.gpu_device,
-            enable_face_recognition=settings.enable_face_recognition,
-            llm_model=settings.llm_model,
-        )
+        dependencies.initialize_dependencies()
         
         # Initialize database tables (optional - use alembic in production)
         # await dependencies.db_connection.create_tables()

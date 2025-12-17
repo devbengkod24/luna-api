@@ -6,9 +6,10 @@ from typing import Any
 from urllib.parse import quote, unquote
 
 import aiofiles
+import uuid
 
 from src.config import settings
-from src.ports.rag import IRAGAdapter
+from src.ports.rag import IRAGStore
 from src.ports.storage import IFileStorage
 
 logger = logging.getLogger(__name__)
@@ -20,11 +21,11 @@ class UploadKnowledgeUseCase:
     def __init__(
         self,
         file_storage: IFileStorage,
-        rag_adapter: IRAGAdapter,
+        rag_store: IRAGStore,
     ):
         """Initialize use case."""
         self.file_storage = file_storage
-        self.rag_adapter = rag_adapter
+        self.rag_store = rag_store
     
     async def execute(
         self,
@@ -33,6 +34,13 @@ class UploadKnowledgeUseCase:
     ) -> dict[str, Any]:
         """Upload and process a document."""
         try:
+            file_path_obj = Path(filename)
+            original_name = file_path_obj.stem.lower()
+            extension = file_path_obj.suffix.lower()
+            
+            file_id = str(uuid.uuid4().hex[:8])
+            filename = f"{original_name}_{file_id}{extension}"
+
             # Step 1: Save file to storage
             file_path = await self.file_storage.save_file(
                 file_content=file_content,
@@ -42,7 +50,7 @@ class UploadKnowledgeUseCase:
             logger.info(f"Saved document file: {file_path}")
             
             # Step 2: Add document to RAG vector store
-            num_chunks = await self.rag_adapter.add_document(
+            num_chunks = await self.rag_store.add_document(
                 file_path=file_path,
             )
             
@@ -60,7 +68,7 @@ class UploadKnowledgeUseCase:
             
             try:
                 await self.file_storage.delete_file(filename)
-                await self.rag_adapter.delete_document(filename)
+                await self.rag_store.delete_document(filename)
             except Exception as cleanup_error:
                 logger.error(f"Error during cleanup: {cleanup_error}", exc_info=True)
             
@@ -95,7 +103,7 @@ class UploadKnowledgeUseCase:
         indexed_filenames = set()
         if skip_existing:
             try:
-                documents_metadata = await self.rag_adapter.get_all_documents_metadata()
+                documents_metadata = await self.rag_store.get_all_documents_metadata()
                 indexed_filenames = {doc.get("file_name", "") for doc in documents_metadata}
                 logger.info(f"Found {len(indexed_filenames)} already indexed documents")
             except Exception as e:
@@ -182,15 +190,15 @@ class ListKnowledgeUseCase:
     
     def __init__(
         self,
-        rag_adapter: IRAGAdapter,
+        rag_store: IRAGStore,
     ):
         """Initialize use case."""
-        self.rag_adapter = rag_adapter
+        self.rag_store = rag_store
     
     async def execute(self) -> list[dict[str, Any]]:
         """List all knowledge."""
         try:
-            documents = await self.rag_adapter.get_all_documents_metadata()
+            documents = await self.rag_store.get_all_documents_metadata()
             
             for doc in documents:
                 file_name = doc.get("file_name", "")
@@ -210,18 +218,18 @@ class DownloadKnowledgeUseCase:
     def __init__(
         self,
         file_storage: IFileStorage,
-        rag_adapter: IRAGAdapter,
+        rag_store: IRAGStore,
     ):
         """Initialize use case."""
         self.file_storage = file_storage
-        self.rag_adapter = rag_adapter
+        self.rag_store = rag_store
     
     async def execute(self, filename: str) -> dict[str, Any]:
         """Download a document file by filename."""
         try:
             decoded_filename = unquote(filename)
             
-            documents_metadata = await self.rag_adapter.get_all_documents_metadata()
+            documents_metadata = await self.rag_store.get_all_documents_metadata()
             doc_metadata = None
             for doc in documents_metadata:
                 if doc.get("file_name") == decoded_filename:
@@ -293,16 +301,16 @@ class DeleteKnowledgeUseCase:
     def __init__(
         self,
         file_storage: IFileStorage,
-        rag_adapter: IRAGAdapter,
+        rag_store: IRAGStore,
     ):
         """Initialize use case."""
         self.file_storage = file_storage
-        self.rag_adapter = rag_adapter
+        self.rag_store = rag_store
     
     async def execute(self, document_id: str) -> dict[str, Any]:
         """Delete a document."""
         try:
-            indexed_ids = await self.rag_adapter.get_all_document_ids()
+            indexed_ids = await self.rag_store.get_all_document_ids()
             if document_id not in indexed_ids:
                 return {
                     "success": False,
@@ -317,7 +325,7 @@ class DeleteKnowledgeUseCase:
                     filename = f
                     break
             
-            deleted_from_vector = await self.rag_adapter.delete_document(document_id)
+            deleted_from_vector = await self.rag_store.delete_document(document_id)
             if deleted_from_vector:
                 logger.info(f"Deleted document from vector store: {document_id}")
             

@@ -7,15 +7,19 @@ to answer questions with knowledge retrieval.
 from typing import AsyncGenerator, List, Dict, Optional, Any
 
 from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain.agents import create_agent
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import tool
 
 from src.config import settings
 from src.ports.agent import IAgentAdapter
-from src.ports.llm import ILLMAdapter
 from src.ports.rag import IRAGAdapter
 from src.domain.entities.chat import UserContext
+
+import math
+from sympy import sympify, SympifyError
+
 
 
 class AgentAdapter(IAgentAdapter):
@@ -23,51 +27,49 @@ class AgentAdapter(IAgentAdapter):
     
     def __init__(
         self,
-        llm_adapter: ILLMAdapter,
+        model: str = None,
         rag_adapter: Optional[IRAGAdapter] = None,
+        web_search_enabled: bool = False,
     ):
         """Initialize agent adapter.
         
         Args:
-            llm_adapter: LLM adapter for text generation
             rag_adapter: Optional RAG adapter for knowledge retrieval tool
         """
-        self.llm_adapter = llm_adapter
         self.rag_adapter = rag_adapter
         
-        # Create LangChain LLM from adapter's internal LLM
-        # Note: We need access to the underlying ChatOllama instance
-        # This is a limitation - ideally ILLMAdapter should expose the LLM
-        # For now, we'll create our own ChatOllama instance
         self.llm = ChatOllama(
-            model=settings.llm_model,
+            model=model,
             base_url=f"http://{settings.ollama_host}:{settings.ollama_port}",
             temperature=settings.llm_temperature,
         )
         
-        # Create tools
-        self.tools = []
-        if self.rag_adapter:
-            self.tools.append(self._create_rag_tool())
+        self.tools = self._create_tools()
+        self.web_search = DuckDuckGoSearchRun(max_results=3)
+        self.agent = None
         
-    
-    def _create_rag_tool(self) -> BaseTool:
-        """Create RAG tool for agent."""
+    def _create_tools(self):
+        """Tools yang bisa dipakai agent."""
         
         @tool
-        async def search_knowledge_base(query: str) -> str:
-            """Search the knowledge base for relevant information.
-            
-            Use this tool when you need to find information from documents
-            or knowledge base. The query should be a clear question or
-            search term.
-            
-            Args:
-                query: Search query or question
-                
-            Returns:
-                str: Relevant information from knowledge base
-            """
+        def search_web(query: str) -> str:
+            """Cari informasi di web."""
+            return self.web_search.invoke(query)
+        
+        @tool
+        def calculator(expression: str) -> str:
+            """Hitung ekspresi matematika aman ( +, -, *, /, **, sin, cos, etc )."""
+            try:
+                expr = sympify(expression, evaluate=True)
+                return f"{float(expr):.4f}"
+            except SympifyError:
+                return "Ekspresi tidak valid. Gunakan: 2+2, sin(30), sqrt(16)"
+            except Exception as e:
+                return f"Error: {str(e)}"
+        
+        @tool
+        async def rag_search(query: str) -> str:
+            """Search the knowledge base for relevant information."""
             results = await self.rag_adapter.retrieve(query, limit=3)
             
             if not results:
@@ -83,7 +85,7 @@ class AgentAdapter(IAgentAdapter):
             
             return "\n\n".join(formatted_results)
         
-        return search_knowledge_base   
+        return [search_web, calculator, rag_search]
      
     async def generate_stream(
         self,
@@ -101,21 +103,6 @@ class AgentAdapter(IAgentAdapter):
             dict: Event dictionaries
         """
         try:
-            # If no tools, fall back to simple LLM generation
-            if not self.tools:
-                yield {"type": "log", "content": "Menggunakan LLM tanpa tools..."}
-                messages_with_system = messages.copy()
-                if system_prompt:
-                    # Add system prompt if provided
-                    messages_with_system.insert(0, {"role": "system", "content": system_prompt})
-                
-                async for token in self.llm_adapter.generate_stream(messages_with_system):
-                    yield {"type": "token", "content": token}
-                
-                yield {"type": "done", "finish_reason": "stop"}
-                return
-            
-            # Extract last user message
             user_messages = [msg for msg in messages if msg.get("role") == "user"]
             if not user_messages:
                 yield {"type": "error", "content": "No user message found"}
@@ -124,24 +111,19 @@ class AgentAdapter(IAgentAdapter):
             
             last_user_message = user_messages[-1]["content"]
             
-            # Build chat history (exclude last user message)
             chat_history = []
-            for msg in messages[:-1]:  # Exclude last user message
+            for msg in messages[:-1]:
                 role = msg.get("role")
                 content = msg.get("content", "")
                 
                 if role == "system":
-                    continue
+                    chat_history.append(SystemMessage(content=content))
                 elif role == "user":
                     chat_history.append(HumanMessage(content=content))
                 elif role == "assistant":
                     chat_history.append(AIMessage(content=content))
-
-            if not system_prompt:
-                system_prompt = "Kamu adalah asisten AI yang ramah dan membantu."
-            
-            # Add system prompt with context
-            agent = create_agent(
+          
+            self.agent = create_agent(
                 model=self.llm,
                 tools=self.tools,
                 system_prompt=system_prompt,
@@ -151,15 +133,14 @@ class AgentAdapter(IAgentAdapter):
             
             config = {"configurable": {"thread_id": "agent-thread-1"}}
 
-            async for event in agent.astream_events(
+            async for event in self.agent.astream_events(
                 {"messages": chat_history + [HumanMessage(content=last_user_message)]},
-                version="v1",  # Required for streaming events
                 config=config,
+                version="v1",
             ):
                 kind = event["event"]
                 
                 if kind == "on_chat_model_stream":
-                    # Token streaming
                     chunk = event["data"]["chunk"].content or ""
                     if chunk:
                         yield {"type": "token", "content": chunk}
@@ -179,7 +160,6 @@ class AgentAdapter(IAgentAdapter):
                     }
                 
                 elif kind == "on_tool_end":
-                    # Tool result
                     yield {
                         "type": "tool_result",
                         "tool": event["name"],
@@ -192,3 +172,20 @@ class AgentAdapter(IAgentAdapter):
             yield {"type": "error", "content": error_message}
             yield {"type": "done", "finish_reason": "error"}
             raise RuntimeError(f"Agent error: {error_message}")
+
+    async def generate_title(self, title_prompt: str) -> str:
+        """Generate a short title for a conversation."""
+        try:
+            messages = [HumanMessage(content=title_prompt)]
+            response = await self.llm.ainvoke(messages)
+
+            title = response.content.strip()
+            title = title.strip("\"'")
+            if len(title) > 50:
+                title = title[:47] + "..."
+
+            return title or "Obrolan Baru"
+
+        except Exception as e:
+            print(f"Error generating title: {e}")
+            return "Obrolan Baru"

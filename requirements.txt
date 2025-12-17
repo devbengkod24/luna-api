@@ -23,6 +23,9 @@ langchain==1.1.0
 langchain-core==1.1.0
 langchain-ollama==1.0.0
 langgraph==1.0.4
+duckduckgo-search==8.1.1
+langchain-community==0.4.1
+ddgs==9.9.3
 
 # RAG & LlamaIndex
 llama-index==0.14.9

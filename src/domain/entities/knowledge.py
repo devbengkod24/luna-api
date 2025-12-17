@@ -1,11 +1,10 @@
 """Document domain entities for RAG knowledge base."""
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 from datetime import datetime
 
 
 @dataclass
-class RetrievalResult:
+class RetrievalResultEntity:
     """RAG retrieval result."""
     content: str
     score: float
@@ -19,13 +18,13 @@ class RetrievalResult:
 
 
 @dataclass
-class KnowledgeMetadata:
+class KnowledgeMetadataEntity:
     """Document-level metadata for storage and API responses."""
     filename: str
-    file_type: str  # File extension (e.g., ".pdf", ".txt")
-    file_size: int  # in bytes
+    file_type: str
+    file_size: int
     uploaded_at: datetime
-    num_chunks: Optional[int] = None
+    num_chunks: int | None = None
     
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -41,11 +40,11 @@ class KnowledgeMetadata:
 
 
 @dataclass
-class Knowledge:
+class KnowledgeEntity:
     """RAG knowledge."""
     id: str
     file_path: str
-    metadata: KnowledgeMetadata
+    metadata: KnowledgeMetadataEntity
     
     def to_dict(self) -> dict:
         """Convert to dictionary."""

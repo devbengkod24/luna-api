@@ -1,25 +1,77 @@
-from pydantic import BaseModel, Field
-from typing import Literal
+import base64
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal, Any
+
+from src.config import settings
 
 class UserContextSchema(BaseModel):
     """User context schema."""
-    emotion: str = Field(default="neutral", description="User emotion state")
-    name: str | None = Field(default=None, description="User name")
-    nim: str | None = Field(default=None, description="User NIM")
+    emotion: str = Field(
+        default="neutral",
+        description="User emotion state",
+        min_length=1,
+        max_length=20,
+    )
+    name: str | None = Field(
+        default=None,
+        description="User name",
+        min_length=1,
+        max_length=20,
+    )
+    nim: str | None = Field(
+        default=None,
+        description="User NIM",
+        min_length=14,
+        max_length=14,
+    )
 
 
 class ChatTextRequest(BaseModel):
-    """Request model for text chat."""
+    """Request model for text chat with validation."""
     uuid: str | None = None
-    prompt: str
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        max_length=settings.chat_max_prompt_length,
+        description="User prompt",
+    )
     context: UserContextSchema
+
+    @field_validator('prompt')
+    @classmethod
+    def validate_prompt(cls, v: str) -> str:
+        """Validate and normalize prompt."""
+        if not v or not v.strip():
+            raise ValueError("Prompt cannot be empty")
+        return v.strip()
 
 
 class ChatAudioRequest(BaseModel):
-    """Request model for audio chat."""
+    """Request model for audio chat with validation."""
     uuid: str | None = None
-    audio: str  # Base64-encoded audio
+    audio: str = Field(
+        ...,
+        min_length=1,
+        max_length=settings.chat_max_audio_base64_size,
+        description="Base64-encoded audio",
+    )
     context: UserContextSchema
+
+    @field_validator('audio')
+    @classmethod
+    def validate_audio(cls, v: str) -> str:
+        """Validate audio data is valid base64 and normalize."""
+        if not v or not v.strip():
+            raise ValueError("Audio data cannot be empty")
+        
+        audio_data = v.strip()
+        
+        try:
+            base64.b64decode(audio_data, validate=True)
+        except Exception:
+            raise ValueError("Invalid base64 audio data")
+        
+        return audio_data
 
 
 class ChatHistoryItem(BaseModel):
@@ -33,11 +85,11 @@ class ChatHistoryItem(BaseModel):
 
 class MessageItem(BaseModel):
     """Response model for message."""
-    role: str
+    role: Literal["user", "assistant"]
     content: str
     context: UserContextSchema | None = None
 
-# chat/history Response Schema
+
 class ChatSessionDetail(BaseModel):
     """Response model for chat session detail."""
     id: int
@@ -45,12 +97,16 @@ class ChatSessionDetail(BaseModel):
     title: str
     messages: list[MessageItem]
 
+
 class SSEEvent(BaseModel):
     """Event for SSE."""
-    type: Literal["log", "token", "done", "error", "transcript"]
+    type: Literal["log", "token", "done", "error", "transcript", "tool_call", "tool_result"]
     content: str | None = None
     session_uuid: str | None = None
     finish_reason: str | None = None
+    tool: str | None = None
+    input: Any | None = None
+    result: Any | None = None
     
     def to_sse(self) -> str:
         """Convert to SSE format."""

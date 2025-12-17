@@ -1,67 +1,83 @@
 """RAG (Retrieval Augmented Generation) port interfaces."""
 from abc import ABC, abstractmethod
-from typing import List, Dict
 from pathlib import Path
 
-from src.domain.entities.knowledge import RetrievalResult
+from src.domain.entities.knowledge import RetrievalResultEntity
+
 
 class IRAGAdapter(ABC):
-    """Interface for RAG adapter using vector database."""
-    
+    """Interface untuk RAG *retriever* (hanya baca / search).
+
+    Concern kelas ini: melakukan retrieval dari vector store
+    untuk dipakai oleh agent / LLM.
+    """
+
     @abstractmethod
-    async def retrieve(self, query: str, limit: int = 5) -> List[RetrievalResult]:
+    async def retrieve(self, query: str, limit: int = 5) -> list[RetrievalResultEntity]:
         """Retrieve relevant documents.
-        
+
         Args:
             query: Retrieval query
             limit: Maximum number of results
-            
+
         Returns:
-            List[RetrievalResult]: Relevant document nodes with scores
+            list[RetrievalResultEntity]: Relevant document nodes with scores
         """
-        pass
-    
+        ...
+
+
+class IRAGStore(ABC):
+    """Interface untuk RAG *store* (tulis & metadata ke vector DB).
+
+    Concern kelas ini: komunikasi ke vector database (Qdrant) untuk:
+    - add_document
+    - delete_document
+    - get_all_document_ids
+    - get_all_documents_metadata
+    """
+
     @abstractmethod
     async def add_document(
         self,
         file_path: Path,
     ) -> int:
         """Add a document to the vector store.
-        
+
         Args:
             file_path: Path to the document file
-            
+
         Returns:
             int: Number of chunks created
         """
-        pass
-    
+        ...
+
     @abstractmethod
     async def delete_document(self, document_id: str) -> bool:
         """Delete a document from the vector store.
-        
+
         Args:
             document_id: Document ID to delete
-            
+
         Returns:
             bool: True if deleted successfully
         """
-        pass
-    
+        ...
+
     @abstractmethod
-    async def get_all_document_ids(self) -> List[str]:
+    async def get_all_document_ids(self) -> list[str]:
         """Get all document IDs in the vector store.
-        
+
         Returns:
-            List[str]: List of document IDs
+            list[str]: List of document IDs
         """
-        pass
-    
+        ...
+
     @abstractmethod
-    async def get_all_documents_metadata(self) -> List[Dict]:
+    async def get_all_documents_metadata(self) -> list[dict]:
         """Get all documents with their metadata from vector store.
-        
+
         Returns:
-            List[Dict]: List of documents with metadata (document_id, file_name, file_type, file_size, creation_date)
+            list[dict]: List of documents with metadata
+                       (document_id, file_name, file_type, file_size, creation_date)
         """
-        pass
+        ...
