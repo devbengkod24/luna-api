@@ -132,14 +132,18 @@ class ChatTextUseCase:
         messages.append({"role": "user", "content": prompt})
         
         try:
+            full_response = ""
+            
             async for event in self.agent_adapter.generate_stream(
                 messages=messages,
                 context=context,
                 system_prompt=system_prompt,
             ):
+                if event.get("type") == "token":
+                    token = event.get("content", "")
+                    full_response += token
+
                 yield event
-            
-            full_response = event.get("token", "")
 
             await self.chat_repository.add_message(
                 session_id=session.id,

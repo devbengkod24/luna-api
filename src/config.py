@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     face_recognition_model: str = (
         "buffalo_sc"  # SCRFD detector + ArcFace recognition
     )
-    gpu_device: int = -1  # -1 for CPU, 0+ for GPU
+    gpu_device: int = 0  # -1 for CPU, 0+ for GPU
     face_detection_size: int = 320  # Detection size (320 faster, 640 more accurate)
     face_similarity_threshold: float = (
         0.5  # Cosine similarity threshold (0.4-0.6 recommended)
@@ -92,11 +92,11 @@ class Settings(BaseSettings):
     
     # Emotion Detection
     enable_emotion_detection: bool = True
-    seed_faces: bool = True
-    seed_knowledge: bool = False
+    seed_faces: bool = False
+    seed_knowledge: bool = True
     
     # Speech-to-Text (Faster Whisper)
-    whisper_model: str = "base"  # tiny, base, small, medium, large-v1, large-v2, large-v3
+    whisper_model: str = "base"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
 
     # Rate limiting constants
     frame_timeout_seconds: float = 5.0

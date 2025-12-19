@@ -20,8 +20,11 @@ reset-db: ## Reset database (WARNING: deletes all data!)
 	alembic downgrade base
 	alembic upgrade head
 
-docker-up: ## Start all services with Docker Compose
+docker-up-cpu: ## Start all services with Docker Compose
 	docker compose up -d
+
+docker-up-gpu: ## Start all services with Docker Compose
+	docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 
 docker-down: ## Stop all services
 	docker compose down

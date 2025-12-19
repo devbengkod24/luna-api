@@ -23,7 +23,7 @@ class STTAdapter(ISTTAdapter):
         self,
         model_size: Optional[str] = None,
         device: Optional[int] = None,
-        compute_type: Optional[str] = "int8"
+        compute_type: Optional[str] = "float16"
     ):
         """Initialize STT adapter with faster-whisper.
         
@@ -37,12 +37,12 @@ class STTAdapter(ISTTAdapter):
         self.model_size = model_size
         
         # Determine device based on gpu_device setting
-        if device > 0:
+        if device >= 0:
             self.device = "cuda"
+            self.compute_type = "float16"
         else:
             self.device = "cpu"
-            
-        self.compute_type = compute_type
+            self.compute_type = "int8"
         
         try:
             self.model = WhisperModel(
