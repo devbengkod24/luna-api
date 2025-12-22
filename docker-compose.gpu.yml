@@ -47,5 +47,4 @@ services:
     environment:
       CUDA_VISIBLE_DEVICES: "0"
       NVIDIA_VISIBLE_DEVICES: "all"
-      NVIDIA_DRIVER_CAPABILITIES: "compute,utility,cudnn"
-
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"

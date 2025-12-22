@@ -53,7 +53,15 @@ class AgentAdapter(IAgentAdapter):
         
         @tool
         def search_web(query: str) -> str:
-            """Cari informasi di web."""
+            """Cari informasi UMUM dari internet (berita terkini, fakta dunia, info real-time).
+            
+            Gunakan tool ini untuk:
+            - Berita dan informasi terkini (presiden, cuaca, harga, dll)
+            - Fakta umum yang TIDAK terkait dengan Universitas Dian Nuswantoro
+            - Informasi yang membutuhkan data real-time dari internet
+            
+            JANGAN gunakan untuk pertanyaan tentang kampus Udinus.
+            """
             return self.web_search.invoke(query)
         
         @tool
@@ -69,11 +77,21 @@ class AgentAdapter(IAgentAdapter):
         
         @tool
         async def rag_search(query: str) -> str:
-            """Search the knowledge base for relevant information."""
+            """Cari informasi INTERNAL dari knowledge base Universitas Dian Nuswantoro (Udinus).
+            
+            Gunakan tool ini untuk:
+            - Profil universitas, fakultas, program studi Udinus
+            - Himpunan Mahasiswa (HM), UKM, organisasi kampus
+            - Prosedur akademik, admisi, pendaftaran mahasiswa baru
+            - Informasi dosen, staff, struktur organisasi kampus
+            - Kalender akademik, jadwal kegiatan kampus
+            
+            JANGAN gunakan untuk informasi umum di luar konteks Udinus.
+            """
             results = await self.rag_adapter.retrieve(query, limit=3)
             
             if not results:
-                return "Tidak ada informasi yang relevan ditemukan."
+                return "Tidak ada informasi yang relevan ditemukan di knowledge base Udinus."
             
             # Format results
             formatted_results = []
