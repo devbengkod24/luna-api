@@ -1,20 +1,29 @@
 """RAG store for Qdrant using LlamaIndex for indexing."""
 
-from typing import List, Dict
 from pathlib import Path
+from typing import Dict, List
 
 from llama_index.core import (
-    VectorStoreIndex,
+    Settings,
     SimpleDirectoryReader,
     StorageContext,
-    Settings,
+    VectorStoreIndex,
 )
-from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
-from llama_index.vector_stores.qdrant import QdrantVectorStore
+from llama_index.core.node_parser.text.semantic_splitter import (
+    SemanticSplitterNodeParser,
+)
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.llms.ollama import Ollama
+from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import AsyncQdrantClient, QdrantClient
-from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue, SparseVectorParams
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    SparseVectorParams,
+    VectorParams,
+)
 
 from src.config import settings
 from src.ports.rag import IRAGStore
@@ -80,9 +89,7 @@ class RAGStore(IRAGStore):
                         distance=Distance.COSINE,
                     )
                 },
-                sparse_vectors_config={
-                    "text-sparse-new": SparseVectorParams()
-                },
+                sparse_vectors_config={"text-sparse-new": SparseVectorParams()},
             )
             print(f"Created collection: {self.collection_name}")
         else:
@@ -98,7 +105,28 @@ class RAGStore(IRAGStore):
             batch_size=20,
         )
 
-        self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+        persist_dir = str(Path(settings.rag_dir) / "index")
+        Path(persist_dir).mkdir(parents=True, exist_ok=True)
+
+        try:
+            self.storage_context = StorageContext.from_defaults(
+                persist_dir=persist_dir,
+                vector_store=self.vector_store,
+            )
+        except FileNotFoundError as e:
+            print(
+                f"Persist files missing in {persist_dir}, starting with empty storage context: {e}"
+            )
+            self.storage_context = StorageContext.from_defaults(
+                vector_store=self.vector_store,
+            )
+        except Exception as e:
+            print(
+                f"Warning initializing storage context with persist_dir={persist_dir}: {e}"
+            )
+            self.storage_context = StorageContext.from_defaults(
+                vector_store=self.vector_store,
+            )
 
         collection_info = await self.aclient.get_collection(self.collection_name)
         print(f"Total points in Qdrant (store): {collection_info.points_count}")
@@ -109,19 +137,17 @@ class RAGStore(IRAGStore):
         file_path: Path,
     ) -> int:
         """Add a document to the vector store.
-        
+
         Args:
             file_path: Path to the document file
-            
+
         Returns:
             int: Number of chunks created
         """
         if not self.storage_context:
             raise RuntimeError("RAGStore not initialized. Call initialize() first.")
 
-        documents = SimpleDirectoryReader(
-            input_files=[str(file_path)]
-        ).load_data()
+        documents = SimpleDirectoryReader(input_files=[str(file_path)]).load_data()
 
         nodes = self.node_parser.get_nodes_from_documents(documents)
 
@@ -135,10 +161,10 @@ class RAGStore(IRAGStore):
 
     async def delete_document(self, document_id: str) -> bool:
         """Delete a document from the vector store.
-        
+
         Args:
             document_id: Document ID to delete
-            
+
         Returns:
             bool: True if deleted successfully
         """
@@ -162,7 +188,7 @@ class RAGStore(IRAGStore):
 
     async def get_all_document_ids(self) -> List[str]:
         """Get all unique document IDs in the vector store.
-        
+
         Returns:
             List[str]: List of document IDs
         """
@@ -180,9 +206,19 @@ class RAGStore(IRAGStore):
                 )
 
                 for record in records:
-                    file_path = record.payload.get("file_path")
-                    if file_path:
-                        document_paths.add(file_path)
+                    payload = record.payload
+                    file_path = payload.get("file_path") or payload.get("file_name")
+
+                    doc_id = payload.get("doc_id")
+                    if not doc_id and file_path:
+                        try:
+                            file_path_obj = Path(file_path)
+                            doc_id = file_path_obj.stem
+                        except Exception:
+                            doc_id = None
+
+                    if doc_id:
+                        document_paths.add(str(doc_id))
 
                 if next_offset is None:
                     break
@@ -195,7 +231,7 @@ class RAGStore(IRAGStore):
 
     async def get_all_documents_metadata(self) -> List[Dict]:
         """Get all documents with their metadata from vector store.
-        
+
         Returns:
             List[Dict]: List of documents with their metadata
         """
@@ -216,13 +252,43 @@ class RAGStore(IRAGStore):
                     payload = record.payload
                     file_path = payload.get("file_path") or payload.get("file_name")
 
-                    if file_path and file_path not in documents_dict:
-                        file_path_obj = Path(file_path)
+                    try:
+                        if file_path and "index" in Path(str(file_path)).parts:
+                            continue
+                    except Exception:
+                        pass
 
-                        document_id = payload.get("doc_id") or file_path_obj.stem
-                        file_name = payload.get("file_name") or file_path_obj.name
-                        file_type = payload.get("file_type") or file_path_obj.suffix.lower().lstrip('.') or "unknown"
-                        file_size = payload.get("file_size") or payload.get("file_size_bytes") or 0
+                    file_path_obj = Path(file_path) if file_path else None
+                    file_name = payload.get("file_name") or (
+                        file_path_obj.name if file_path_obj else None
+                    )
+                    document_id = payload.get("doc_id") or (
+                        file_path_obj.stem if file_path_obj else None
+                    )
+
+                    if not file_name:
+                        continue
+
+                    if file_name not in documents_dict:
+                        file_type = (
+                            payload.get("file_type")
+                            or (
+                                file_path_obj.suffix.lower().lstrip(".")
+                                if file_path_obj and file_path_obj.suffix
+                                else "unknown"
+                            )
+                        ) or "unknown"
+
+                        file_size = (
+                            payload.get("file_size")
+                            or payload.get("file_size_bytes")
+                            or 0
+                        )
+                        try:
+                            file_size = int(file_size) if file_size else 0
+                        except Exception:
+                            file_size = 0
+
                         creation_date = (
                             payload.get("creation_date")
                             or payload.get("date_created")
@@ -230,12 +296,14 @@ class RAGStore(IRAGStore):
                             or ""
                         )
 
-                        documents_dict[file_path] = {
+                        documents_dict[file_name] = {
                             "document_id": document_id,
                             "file_name": file_name,
                             "file_type": file_type,
                             "file_size": int(file_size) if file_size else 0,
-                            "creation_date": str(creation_date) if creation_date else "",
+                            "creation_date": (
+                                str(creation_date) if creation_date else ""
+                            ),
                         }
 
                 if next_offset is None:
