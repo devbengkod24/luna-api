@@ -1,22 +1,24 @@
 """Chat REST routers."""
-import logging
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from fastapi.params import Query
 
-from src.use_cases.chat_text import ChatTextUseCase
-from src.use_cases.chat_speech import ChatSpeechUseCase
-from src.use_cases.chat_history import GetChatHistoryUseCase, GetChatSessionUseCase
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.params import Query
+from fastapi.responses import StreamingResponse
+
 from src.domain.entities.chat import UserContext
 from src.drivers import dependencies
 from src.drivers.rest.schemas.chat import (
-    ChatTextRequest, 
-    ChatAudioRequest, 
-    ChatHistoryItem, 
-    ChatSessionDetail, 
+    ChatAudioRequest,
+    ChatHistoryItem,
+    ChatSessionDetail,
+    ChatTextRequest,
     MessageItem,
     SSEEvent,
 )
+from src.use_cases.chat_history import GetChatHistoryUseCase, GetChatSessionUseCase
+from src.use_cases.chat_speech import ChatSpeechUseCase
+from src.use_cases.chat_text import ChatTextUseCase
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/chat", tags=["chat"])
@@ -30,6 +32,7 @@ SSE_HEADERS = {
 
 def make_sse_stream(use_case, execute_args: tuple, logger_prefix: str):
     """Create SSE event generator from use case."""
+
     async def event_generator():
         try:
             event_count = 0
@@ -42,7 +45,9 @@ def make_sse_stream(use_case, execute_args: tuple, logger_prefix: str):
                     event_count += 1
                 except Exception as e:
                     logger.error(f"{logger_prefix} serialize error: {e}", exc_info=True)
-                    yield SSEEvent(type="error", content="Error serializing event").to_sse()
+                    yield SSEEvent(
+                        type="error", content="Error serializing event"
+                    ).to_sse()
                     break
             logger.info(f"{logger_prefix} completed - {event_count} events sent")
         except ValueError as e:
@@ -51,8 +56,11 @@ def make_sse_stream(use_case, execute_args: tuple, logger_prefix: str):
             yield SSEEvent(type="done", finish_reason="error").to_sse()
         except Exception as e:
             logger.error(f"{logger_prefix} stream error: {e}", exc_info=True)
-            yield SSEEvent(type="error", content="An error occurred while processing your request").to_sse()
+            yield SSEEvent(
+                type="error", content="An error occurred while processing your request"
+            ).to_sse()
             yield SSEEvent(type="done", finish_reason="error").to_sse()
+
     return event_generator
 
 
@@ -66,6 +74,7 @@ async def chat_text(
         emotion=request.context.emotion,
         name=request.context.name,
         nim=request.context.nim,
+        character=request.context.character,
     )
 
     logger.info(
@@ -73,11 +82,9 @@ async def chat_text(
         f"Prompt length: {len(request.prompt)}, "
         f"Emotion: {context.emotion}"
     )
-    
+
     event_generator = make_sse_stream(
-        use_case, 
-        (request.uuid, request.prompt, context), 
-        "Chat text"
+        use_case, (request.uuid, request.prompt, context), "Chat text"
     )
     return StreamingResponse(
         event_generator(),
@@ -96,6 +103,7 @@ async def chat_audio(
         emotion=request.context.emotion,
         name=request.context.name,
         nim=request.context.nim,
+        character=request.context.character,
     )
 
     logger.info(
@@ -103,11 +111,9 @@ async def chat_audio(
         f"Audio size: {len(request.audio)} bytes, "
         f"Emotion: {context.emotion}"
     )
-    
+
     event_generator = make_sse_stream(
-        use_case, 
-        (request.uuid, request.audio, context), 
-        "Chat audio"
+        use_case, (request.uuid, request.audio, context), "Chat audio"
     )
     return StreamingResponse(
         event_generator(),
@@ -115,26 +121,29 @@ async def chat_audio(
         headers=SSE_HEADERS,
     )
 
+
 @router.get("/history", response_model=list[ChatHistoryItem])
 async def get_chat_history(
-    limit: int | None = Query(None, ge=1, le=1000, description="Maximum number of sessions to return"),
+    limit: int | None = Query(
+        None, ge=1, le=1000, description="Maximum number of sessions to return"
+    ),
     offset: int | None = Query(0, ge=0, description="Number of sessions to skip"),
     use_case: GetChatHistoryUseCase = Depends(dependencies.get_history_use_case),
 ):
     """Get list of all chat sessions."""
     try:
         sessions = await use_case.execute()
-        
+
         if limit is not None:
             total = len(sessions)
-            sessions = sessions[offset:offset + limit]
+            sessions = sessions[offset : offset + limit]
             logger.info(
                 f"Listed {len(sessions)} session(s) "
                 f"(offset={offset}, limit={limit}, total={total})"
             )
         else:
             logger.info(f"Listed {len(sessions)} session(s)")
-        
+
         return [
             ChatHistoryItem(
                 id=session.id,
@@ -145,7 +154,7 @@ async def get_chat_history(
             )
             for session in sessions
         ]
-    
+
     except Exception as e:
         logger.error(f"Error getting chat history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -159,12 +168,14 @@ async def get_chat_session(
     """Get specific chat session with all messages."""
     try:
         session = await use_case.execute(session_uuid)
-        
+
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        logger.info(f"Retrieved session: {session_uuid} ({len(session.messages)} messages)")
-        
+
+        logger.info(
+            f"Retrieved session: {session_uuid} ({len(session.messages)} messages)"
+        )
+
         return ChatSessionDetail(
             id=session.id,
             uuid=session.uuid,
@@ -178,10 +189,9 @@ async def get_chat_session(
                 for msg in session.messages
             ],
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting chat session: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-

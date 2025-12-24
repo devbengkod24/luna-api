@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Any
 
 from src.config import settings
+from src.domain.entities.chat import Character
 
 class UserContextSchema(BaseModel):
     """User context schema."""
@@ -23,6 +24,10 @@ class UserContextSchema(BaseModel):
         description="User NIM",
         min_length=14,
         max_length=14,
+    )
+    character: Character = Field(
+        default=Character.RUSSELL,
+        description="Persona character to use for responses (russell|fredricksen)",
     )
 
 

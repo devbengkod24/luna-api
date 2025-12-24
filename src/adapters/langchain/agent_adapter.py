@@ -4,27 +4,25 @@ This adapter creates a LangChain agent that can use RAG as a tool
 to answer questions with knowledge retrieval.
 """
 
-from typing import AsyncGenerator, List, Dict, Optional, Any
+import math
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from langchain_ollama import ChatOllama
-from langchain_community.tools import DuckDuckGoSearchRun
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain.agents import create_agent
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
+from langchain_ollama import ChatOllama
+from sympy import SympifyError, sympify
 
 from src.config import settings
+from src.domain.entities.chat import UserContext
 from src.ports.agent import IAgentAdapter
 from src.ports.rag import IRAGAdapter
-from src.domain.entities.chat import UserContext
-
-import math
-from sympy import sympify, SympifyError
-
 
 
 class AgentAdapter(IAgentAdapter):
     """Agent adapter using LangChain with tool calling."""
-    
+
     def __init__(
         self,
         model: str = None,
@@ -32,38 +30,38 @@ class AgentAdapter(IAgentAdapter):
         web_search_enabled: bool = False,
     ):
         """Initialize agent adapter.
-        
+
         Args:
             rag_adapter: Optional RAG adapter for knowledge retrieval tool
         """
         self.rag_adapter = rag_adapter
-        
+
         self.llm = ChatOllama(
             model=model,
             base_url=f"http://{settings.ollama_host}:{settings.ollama_port}",
             temperature=settings.llm_temperature,
         )
-        
+
         self.tools = self._create_tools()
         self.web_search = DuckDuckGoSearchRun(max_results=3)
         self.agent = None
-        
+
     def _create_tools(self):
         """Tools yang bisa dipakai agent."""
-        
+
         @tool
         def search_web(query: str) -> str:
             """Cari informasi UMUM dari internet (berita terkini, fakta dunia, info real-time).
-            
+
             Gunakan tool ini untuk:
             - Berita dan informasi terkini (presiden, cuaca, harga, dll)
             - Fakta umum yang TIDAK terkait dengan Universitas Dian Nuswantoro
             - Informasi yang membutuhkan data real-time dari internet
-            
+
             JANGAN gunakan untuk pertanyaan tentang kampus Udinus.
             """
             return self.web_search.invoke(query)
-        
+
         @tool
         def calculator(expression: str) -> str:
             """Hitung ekspresi matematika aman ( +, -, *, /, **, sin, cos, etc )."""
@@ -74,37 +72,39 @@ class AgentAdapter(IAgentAdapter):
                 return "Ekspresi tidak valid. Gunakan: 2+2, sin(30), sqrt(16)"
             except Exception as e:
                 return f"Error: {str(e)}"
-        
+
         @tool
         async def rag_search(query: str) -> str:
             """Cari informasi INTERNAL dari knowledge base Universitas Dian Nuswantoro (Udinus).
-            
+
             Gunakan tool ini untuk:
             - Profil universitas, fakultas, program studi Udinus
             - Himpunan Mahasiswa (HM), UKM, organisasi kampus
             - Prosedur akademik, admisi, pendaftaran mahasiswa baru
             - Informasi dosen, staff, struktur organisasi kampus
             - Kalender akademik, jadwal kegiatan kampus
-            
+            - Fasilitas kampus, lokasi, sarana prasarana
+            - Kurikulum, mata kuliah, silabus program studi
+            - Beasiswa, bantuan keuangan, program dukungan mahasiswa
+
             JANGAN gunakan untuk informasi umum di luar konteks Udinus.
             """
             results = await self.rag_adapter.retrieve(query, limit=3)
-            
+
             if not results:
                 return "Tidak ada informasi yang relevan ditemukan di knowledge base Udinus."
-            
+
             # Format results
             formatted_results = []
             for i, result in enumerate(results, 1):
                 formatted_results.append(
-                    f"[{i}] {result.content}\n"
-                    f"  Relevansi: {result.score:.4f}"
+                    f"[{i}] {result.content}\n" f"  Relevansi: {result.score:.4f}"
                 )
-            
+
             return "\n\n".join(formatted_results)
-        
+
         return [search_web, calculator, rag_search]
-     
+
     async def generate_stream(
         self,
         messages: List[Dict[str, str]],
@@ -112,11 +112,11 @@ class AgentAdapter(IAgentAdapter):
         system_prompt: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Generate streaming response from agent with tools.
-        
+
         Args:
             messages: List of message dicts with 'role' and 'content'
             context: Optional user context
-            
+
         Yields:
             dict: Event dictionaries
         """
@@ -126,29 +126,29 @@ class AgentAdapter(IAgentAdapter):
                 yield {"type": "error", "content": "No user message found"}
                 yield {"type": "done", "finish_reason": "error"}
                 return
-            
+
             last_user_message = user_messages[-1]["content"]
-            
+
             chat_history = []
             for msg in messages[:-1]:
                 role = msg.get("role")
                 content = msg.get("content", "")
-                
+
                 if role == "system":
                     chat_history.append(SystemMessage(content=content))
                 elif role == "user":
                     chat_history.append(HumanMessage(content=content))
                 elif role == "assistant":
                     chat_history.append(AIMessage(content=content))
-          
+
             self.agent = create_agent(
                 model=self.llm,
                 tools=self.tools,
                 system_prompt=system_prompt,
             )
-        
+
             yield {"type": "log", "content": "Memproses dengan agent..."}
-            
+
             config = {"configurable": {"thread_id": "agent-thread-1"}}
 
             async for event in self.agent.astream_events(
@@ -157,12 +157,12 @@ class AgentAdapter(IAgentAdapter):
                 version="v1",
             ):
                 kind = event["event"]
-                
+
                 if kind == "on_chat_model_stream":
                     chunk = event["data"]["chunk"].content or ""
                     if chunk:
                         yield {"type": "token", "content": chunk}
-                
+
                 elif kind == "on_tool_start":
                     data = event.get("data", {}) or {}
                     tool_input = (
@@ -176,14 +176,14 @@ class AgentAdapter(IAgentAdapter):
                         "tool": event.get("name"),
                         "input": tool_input,
                     }
-                
+
                 elif kind == "on_tool_end":
                     yield {
                         "type": "tool_result",
                         "tool": event["name"],
                         "result": str(event["data"]["output"])[:500],
                     }
-            
+
             yield {"type": "done", "finish_reason": "stop"}
         except Exception as e:
             error_message = str(e)
