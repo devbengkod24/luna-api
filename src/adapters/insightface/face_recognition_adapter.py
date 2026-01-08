@@ -46,7 +46,7 @@ def estimate_norm(landmark: np.ndarray, image_size: int = 112) -> np.ndarray:
         dst = dst * (image_size / 112.0)
     
     tform = trans.SimilarityTransform()
-    tform.estimate(landmark, dst)
+    tform.from_estimate(landmark, dst)
     M = tform.params[0:2, :]
     
     return M

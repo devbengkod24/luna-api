@@ -14,6 +14,7 @@ from src.adapters.insightface.face_recognition_adapter import FaceRecognitionAda
 from src.adapters.bytetrack.tracker_adapter import TrackerAdapter
 from src.adapters.langchain.agent_adapter import AgentAdapter
 from src.adapters.huggingface.emotion_adapter import EmotionDetectionAdapter
+from src.adapters.huggingface.tts_adapter import TTSAdapter
 from src.domain.entities.storage import StorageType
 from src.config import settings
 from src.use_cases.chat_text import ChatTextUseCase
@@ -38,6 +39,7 @@ rag_store: RAGStore | None = None      # store (Qdrant)
 rag_storage: FileStorageAdapter | None = None  # filesystem storage for RAG files
 faces_storage: FileStorageAdapter | None = None
 stt_adapter: STTAdapter | None = None
+tts_adapter: TTSAdapter | None = None
 face_recognition_adapter: FaceRecognitionAdapter | None = None
 face_store: FaceStore | None = None
 tracker_adapter: TrackerAdapter | None = None
@@ -48,7 +50,7 @@ agent_adapter: AgentAdapter | None = None
 def initialize_dependencies() -> None:
     """Initialize global dependencies."""
     global db_connection, rag_adapter, rag_store, rag_storage, faces_storage
-    global stt_adapter
+    global stt_adapter, tts_adapter
     global face_recognition_adapter, face_store, tracker_adapter
     global emotion_detection_adapter, agent_adapter
 
@@ -72,6 +74,16 @@ def initialize_dependencies() -> None:
             device=settings.gpu_device, 
             compute_type="int8"
         )
+        
+        # Initialize TTS adapter
+        try:
+            tts_adapter = TTSAdapter(
+                voice_clone_dir=settings.voice_clone_dir
+            )
+            print("TTS adapter initialized successfully")
+        except Exception as e:
+            print(f"Warning: Could not initialize TTS adapter: {e}")
+            tts_adapter = None
         
         agent_adapter = AgentAdapter(
             model=settings.llm_model,
@@ -171,7 +183,7 @@ async def get_chat_speech_use_case(
     if not stt_adapter:
         raise RuntimeError("STT adapter not initialized")
     repository = ChatRepository(session)
-    return ChatSpeechUseCase(repository, agent_adapter, stt_adapter)
+    return ChatSpeechUseCase(repository, agent_adapter, stt_adapter, tts_adapter)
 
 
 async def get_history_use_case(

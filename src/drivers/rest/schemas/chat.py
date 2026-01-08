@@ -7,9 +7,9 @@ from src.domain.entities.chat import Character
 
 class UserContextSchema(BaseModel):
     """User context schema."""
-    emotion: str = Field(
-        default="neutral",
-        description="User emotion state",
+    emotion: str | None = Field(
+        default=None,
+        description="User emotion state (null if neutral/no emotion detected)",
         min_length=1,
         max_length=20,
     )
@@ -25,10 +25,6 @@ class UserContextSchema(BaseModel):
         min_length=14,
         max_length=14,
     )
-    character: Character = Field(
-        default=Character.RUSSELL,
-        description="Persona character to use for responses (russell|fredricksen)",
-    )
 
 
 class ChatTextRequest(BaseModel):
@@ -40,7 +36,14 @@ class ChatTextRequest(BaseModel):
         max_length=settings.chat_max_prompt_length,
         description="User prompt",
     )
-    context: UserContextSchema
+    character: Character = Field(
+        ...,
+        description="Persona character to use for responses (russell|fredricksen)",
+    )
+    context: UserContextSchema | None = Field(
+        default=None,
+        description="User context (emotion, name, nim). Can be null if all fields are null.",
+    )
 
     @field_validator('prompt')
     @classmethod
@@ -60,7 +63,18 @@ class ChatAudioRequest(BaseModel):
         max_length=settings.chat_max_audio_base64_size,
         description="Base64-encoded audio",
     )
-    context: UserContextSchema
+    character: Character = Field(
+        ...,
+        description="Persona character to use for responses (russell|fredricksen)",
+    )
+    context: UserContextSchema | None = Field(
+        default=None,
+        description="User context (emotion, name, nim). Can be null if all fields are null.",
+    )
+    enable_tts: bool = Field(
+        default=True,
+        description="Enable text-to-speech synthesis for the response",
+    )
 
     @field_validator('audio')
     @classmethod
@@ -77,8 +91,7 @@ class ChatAudioRequest(BaseModel):
             raise ValueError("Invalid base64 audio data")
         
         return audio_data
-
-
+    
 class ChatHistoryItem(BaseModel):
     """Response model for chat history item."""
     id: int
@@ -90,9 +103,11 @@ class ChatHistoryItem(BaseModel):
 
 class MessageItem(BaseModel):
     """Response model for message."""
+    id: int
     role: Literal["user", "assistant"]
     content: str
     context: UserContextSchema | None = None
+    created_at: str
 
 
 class ChatSessionDetail(BaseModel):
@@ -105,7 +120,7 @@ class ChatSessionDetail(BaseModel):
 
 class SSEEvent(BaseModel):
     """Event for SSE."""
-    type: Literal["log", "token", "done", "error", "transcript", "tool_call", "tool_result"]
+    type: Literal["log", "token", "done", "error", "transcript", "audio", "tool_call", "tool_result"]
     content: str | None = None
     session_uuid: str | None = None
     finish_reason: str | None = None

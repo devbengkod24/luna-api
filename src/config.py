@@ -52,10 +52,10 @@ class Settings(BaseSettings):
 
     # LLM
     llm_model: str = "llama3.1:8b"
-    embedding_model: str = "embeddinggemma:latest"
+    embedding_model: str = "embeddinggemma:300m"
     reranker_model: str = "jina-reranker-v3-Q4_K_M.gguf"
     llm_temperature: float = 0.7
-    web_search_enabled: bool = True
+    web_search_enabled: bool = True                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
     
     # Ollama
     ollama_host: str = "ollama"
@@ -93,10 +93,13 @@ class Settings(BaseSettings):
     # Emotion Detection
     enable_emotion_detection: bool = True
     seed_faces: bool = False
-    seed_knowledge: bool = True
+    seed_knowledge: bool = False
     
     # Speech-to-Text (Faster Whisper)
-    whisper_model: str = "base"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
+    whisper_model: str = "large"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
+    
+    # Text-to-Speech (Chatterbox TTS)
+    voice_clone_dir: str = "storage/voice"  # Directory for voice cloning audio files
 
     # Rate limiting constants
     frame_timeout_seconds: float = 5.0

@@ -21,19 +21,21 @@ class Character(str, Enum):
 class UserContext:
     """User context - stores user state for conversation."""
 
-    emotion: str = "neutral"
+    emotion: str | None = None
     name: str | None = None
     nim: str | None = None
-    character: Character = Character.RUSSELL
 
-    def to_dict(self) -> dict:
-        """Convert to dictionary."""
-        return {
+    def to_dict(self) -> dict | None:
+        """Convert to dictionary. Returns None if all fields are None."""
+        result = {
             "emotion": self.emotion,
             "name": self.name,
             "nim": self.nim,
-            "character": self.character.value,
-        }
+        }   
+
+        if all(value is None for value in result.values()):
+            return None
+        return result
 
 
 @dataclass

@@ -43,7 +43,7 @@ class AgentAdapter(IAgentAdapter):
         )
 
         self.tools = self._create_tools()
-        self.web_search = DuckDuckGoSearchRun(max_results=3)
+        # self.web_search = DuckDuckGoSearchRun(max_results=3)
         self.agent = None
 
     def _create_tools(self):
@@ -60,7 +60,7 @@ class AgentAdapter(IAgentAdapter):
 
             JANGAN gunakan untuk pertanyaan tentang kampus Udinus.
             """
-            return self.web_search.invoke(query)
+            return DuckDuckGoSearchRun(max_results=5).run(query)
 
         @tool
         def calculator(expression: str) -> str:

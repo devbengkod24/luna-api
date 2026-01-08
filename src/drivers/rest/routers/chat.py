@@ -70,21 +70,26 @@ async def chat_text(
     use_case: ChatTextUseCase = Depends(dependencies.get_chat_text_use_case),
 ):
     """Handle text-based chat with streaming response."""
-    context = UserContext(
-        emotion=request.context.emotion,
-        name=request.context.name,
-        nim=request.context.nim,
-        character=request.context.character,
-    )
+    if request.context is None:
+        context = None
+    else:
+        context = UserContext(
+            emotion=request.context.emotion,
+            name=request.context.name,
+            nim=request.context.nim,
+        )
 
     logger.info(
         f"Chat text request - UUID: {request.uuid}, "
         f"Prompt length: {len(request.prompt)}, "
-        f"Emotion: {context.emotion}"
+        f"Character: {request.character}, "
+        f"Emotion: {context.emotion if context else 'None'}, "
+        f"Name: {context.name if context else 'None'}, "
+        f"NIM: {context.nim if context else 'None'}"
     )
 
     event_generator = make_sse_stream(
-        use_case, (request.uuid, request.prompt, context), "Chat text"
+        use_case, (request.uuid, request.prompt, request.character, context), "Chat text"
     )
     return StreamingResponse(
         event_generator(),
@@ -99,21 +104,27 @@ async def chat_audio(
     use_case: ChatSpeechUseCase = Depends(dependencies.get_chat_speech_use_case),
 ):
     """Handle audio-based chat with streaming response."""
-    context = UserContext(
-        emotion=request.context.emotion,
-        name=request.context.name,
-        nim=request.context.nim,
-        character=request.context.character,
-    )
+    if request.context is None:
+        context = None
+    else:
+        context = UserContext(
+            emotion=request.context.emotion,
+            name=request.context.name,
+            nim=request.context.nim,
+        )
 
     logger.info(
         f"Chat audio request - UUID: {request.uuid}, "
         f"Audio size: {len(request.audio)} bytes, "
-        f"Emotion: {context.emotion}"
+        f"Character: {request.character}, "
+        f"TTS enabled: {request.enable_tts}, "
+        f"Emotion: {context.emotion if context else 'None'}, "
+        f"Name: {context.name if context else 'None'}, "
+        f"NIM: {context.nim if context else 'None'}"
     )
 
     event_generator = make_sse_stream(
-        use_case, (request.uuid, request.audio, context), "Chat audio"
+        use_case, (request.uuid, request.audio, request.character, context, request.enable_tts), "Chat audio"
     )
     return StreamingResponse(
         event_generator(),
@@ -182,9 +193,11 @@ async def get_chat_session(
             title=session.title,
             messages=[
                 MessageItem(
-                    role=msg.role,
+                    id=msg.id if msg.id else 0,
+                    role=msg.role.value if hasattr(msg.role, 'value') else msg.role,
                     content=msg.content,
                     context=msg.context,
+                    created_at=msg.created_at.isoformat() if msg.created_at else "",
                 )
                 for msg in session.messages
             ],
