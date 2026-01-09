@@ -14,7 +14,7 @@ class ChatSpeechUseCase(BaseChatUseCase):
         chat_repository,
         agent_adapter,
         stt_adapter: ISTTAdapter,
-        tts_adapter: Optional[ITTSAdapter] = None,
+        tts_adapter: ITTSAdapter,
     ):
         """Initialize use case with dependencies.
         

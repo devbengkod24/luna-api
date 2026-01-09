@@ -6,19 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Text-to-Speech (TTS) Integration**
-  - Chatterbox TTS Indonesian adapter implementation
-  - Voice cloning support with audio reference files
-  - Auto-detect CUDA/CPU for optimal performance
+  - Facebook MMS-TTS Indonesian adapter implementation (facebook/mms-tts-ind)
+  - VITS model architecture for high-quality Indonesian speech synthesis
+  - Auto-detect CUDA/GPU for optimal performance
   - Integrated with chat audio endpoint (`/v1/chat/audio`)
   - New SSE event type: `audio` for TTS response
-  - Configuration: `voice_clone_dir` setting
-  - Storage directory: `storage/voice/` for voice cloning files
+  - Configuration: `voice_clone_dir` setting (reserved for future use)
+  - Storage directory: `storage/voice/` (reserved for future voice cloning)
 
 ### Changed
+- Migrated from Chatterbox TTS to Facebook MMS-TTS Indonesian model
 - Updated `ChatSpeechUseCase` to support TTS synthesis
 - Added `enable_tts` parameter to `ChatAudioRequest` schema
 - Enhanced chat audio endpoint with TTS response streaming
-- Updated dependencies: added `scipy` for audio processing
+- Updated dependencies: added `scipy==1.15.1` for audio processing
+- Removed voice cloning functionality (reserved for future implementation)
 
 ### Documentation
 - Added `docs/TTS_SETUP.md` - Complete TTS setup guide

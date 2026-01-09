@@ -173,7 +173,7 @@ async def get_chat_text_use_case(
     if not rag_adapter:
         raise RuntimeError("LLM adapter or RAG adapter not initialized")
     repository = ChatRepository(session)
-    return ChatTextUseCase(repository, agent_adapter)
+    return ChatTextUseCase(repository, agent_adapter, tts_adapter)
 
 
 async def get_chat_speech_use_case(

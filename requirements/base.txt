@@ -65,5 +65,3 @@ transformers==4.57.3
 python-dotenv==1.2.1
 aiofiles==25.1.0
 ctranslate2==4.6.3
-
-chatterbox-tts==0.1.6

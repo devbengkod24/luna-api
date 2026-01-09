@@ -98,8 +98,8 @@ class Settings(BaseSettings):
     # Speech-to-Text (Faster Whisper)
     whisper_model: str = "large"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
     
-    # Text-to-Speech (Chatterbox TTS)
-    voice_clone_dir: str = "storage/voice"  # Directory for voice cloning audio files
+    # Text-to-Speech (Facebook MMS-TTS Indonesian)
+    voice_clone_dir: str = "storage/voice"  # Directory for future voice cloning (currently unused)
 
     # Rate limiting constants
     frame_timeout_seconds: float = 5.0
