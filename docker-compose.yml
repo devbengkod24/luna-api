@@ -107,6 +107,7 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./storage:/app/storage
+      - ai_cache:/root/.cache
       # - .:/app
 
     depends_on:
