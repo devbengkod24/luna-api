@@ -26,7 +26,9 @@ class BaseChatUseCase(ABC):
         self.chat_repository = chat_repository
         self.agent_adapter = agent_adapter
 
-    def _build_system_prompt(self, character: Character, context: UserContext | None) -> str:
+    def _build_system_prompt(
+        self, character: Character, context: UserContext | None
+    ) -> str:
         """Build system prompt with context.
 
         Args:
@@ -52,9 +54,9 @@ Kamu bisa menjawab dalam bahasa Indonesia dan bahasa Inggris.
 
 Kamu akan mendapatkan messages dari role user dengan messages nya adalah isi dari content.
 Jawablah message dari role user tersebut sesuai dengan karakter kamu.
-Ketika isi message nya menyebutkan kata ganti orang ke kedua (kamu, anda, loe dll), anggap itu merujuk pada diri kamu sebagai Bengbot. ketika menyebutkan kata ganti orang pertama (saya, aku, gue dll), anggap itu merujuk pada user yang mengirim message tersebut.
+Ketika isi message nya menyebutkan kata ganti orang ke kedua (kamu, anda, loe dll), anggap itu merujuk pada diri kamu sebagai Bengbot. ketika isi message menyebutkan kata ganti orang pertama (saya, aku, gue dll), anggap itu merujuk pada user/pengguna yang mengirim message tersebut.
 
-KONTEKS PENGGUNA:
+KONTEKS PENGGUNA ATAU USER:
 - Nama: {name}
 - NIM: {nim if nim else "Tidak ada"}
 - Emosi: {emotion}
@@ -63,6 +65,8 @@ KONTEKS PENGGUNA:
 === KONSEP PENTING: CASUAL vs INFORMATIONAL ===
 
 CASUAL CHAT (TANPA TOOL):
+- Sapaan: "halo", "hai", "selamat pagi", "apa kabar", "siapa kamu"
+- Pertanyaan tentang pengguna: "siapa aku", "siapa namaku", "siapa saya", "siapa nama saya", "apa nim saya", "nim saya berapa", "apa emosi saya", "apa emosi aku"
 - Pujian: "kamu lucu", "kamu keren", "kamu pintar"
 - Ekspresi perasaan: "aku senang", "aku bingung", "aku capek"
 - Small talk: "lagi ngapain", "gimana nih", "kok gitu sih"
@@ -70,7 +74,8 @@ CASUAL CHAT (TANPA TOOL):
 - Bercanda/guyonan: "wkwk", "haha", "lucu deh kamu"
 
 INFORMATIONAL (PAKAI TOOL):
-- Pertanyaan spesifik dengan kata tanya: "siapa", "apa", "kapan", "dimana", "berapa"
+- Pertanyaan spesifik dengan kata tanya TENTANG ORANG/TOPIK LAIN: "siapa itu Jokowi", "siapa presiden Indonesia"
+- Pertanyaan spesifik dengan kata tanya: "apa", "kapan", "dimana", "berapa"
 - Meminta data faktual: "presiden Indonesia", "fakultas di Udinus", "KRS itu apa"
 - Perhitungan: "15 x 23"
 
@@ -87,6 +92,8 @@ INFORMATIONAL (PAKAI TOOL):
 TIDAK PERLU tool untuk:
 - Sapaan seperti "halo", "hai", "apa kabar", "siapa kamu"
 - Pertanyaan tentang kemampuanmu sebagai AI
+- PERTANYAAN TENTANG IDENTITAS USER: "siapa aku", "siapa saya", "apa nama saya", "nim saya", "nim saya berapa", "apa emosi saya", "apa emosi aku"
+- Untuk pertanyaan identitas user, LANGSUNG jawab dari KONTEKS PENGGUNA di atas
 - Obrolan casual yang tidak butuh data faktual
 
 Gunakan rag_search untuk:
@@ -110,6 +117,7 @@ PENTING: Jika kamu tidak yakin tentang suatu informasi (terutama tentang orang a
 ✓ JANGAN terlalu eager pakai tool! Mayoritas chat itu casual, bukan informational
 ✓ JANGAN pernah sebutkan tool yang dipakai ("Berdasarkan search_web...", "Hasil rag_search...")
 ✓ JANGAN pakai tool untuk greeting, how are you, terima kasih, bye
+✓ JANGAN pakai tool untuk pertanyaan identitas diri user (siapa aku, nama saya, nim saya) - LANGSUNG jawab dari KONTEKS PENGGUNA
 ✓ SELALU pakai search_web untuk: nama orang, presiden, menteri, artis, atlet, liga olahraga, berita
 ✓ SELALU pakai rag_search untuk: info Udinus, kampus, prodi, dosen, mahasiswa, HM, UKM, beasiswa
 ✓ Kalau tidak yakin tentang fakta → pakai search_web, jangan mengarang!
@@ -305,9 +313,7 @@ Jawab hanya dengan judul saja, tanpa tanda kutip atau penjelasan tambahan."""
             dict: Streaming events (log, token, done, error)
         """
         # Step 1: Get or create session
-        session, session_uuid = await self._get_or_create_session(
-            session_uuid, prompt
-        )
+        session, session_uuid = await self._get_or_create_session(session_uuid, prompt)
 
         if not session:
             yield {"type": "error", "content": "Session not found"}
@@ -370,4 +376,3 @@ Jawab hanya dengan judul saja, tanpa tanda kutip atau penjelasan tambahan."""
                 "session_uuid": session_uuid,
             }
             return
-
