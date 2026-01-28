@@ -19,6 +19,9 @@ from src.domain.entities.chat import UserContext
 from src.ports.agent import IAgentAdapter
 from src.ports.rag import IRAGAdapter
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class AgentAdapter(IAgentAdapter):
     """Agent adapter using LangChain with tool calling."""
@@ -90,6 +93,11 @@ class AgentAdapter(IAgentAdapter):
             JANGAN gunakan untuk informasi umum di luar konteks Udinus.
             """
             results = await self.rag_adapter.retrieve(query, limit=3)
+
+            logger.info(f"rag_search tool called with query: '{query}'")
+            logger.info(f"Retrieved {len(results)} results")
+            for i, result in enumerate(results, 1):
+                logger.info(f"  Result {i}: score={result.score:.4f}, content_preview={result.content[:200]}...")
 
             if not results:
                 return "Tidak ada informasi yang relevan ditemukan di knowledge base Udinus."
@@ -181,7 +189,7 @@ class AgentAdapter(IAgentAdapter):
                     yield {
                         "type": "tool_result",
                         "tool": event["name"],
-                        "result": str(event["data"]["output"])[:500],
+                        "result": str(event["data"]["output"]),
                     }
 
             yield {"type": "done", "finish_reason": "stop"}

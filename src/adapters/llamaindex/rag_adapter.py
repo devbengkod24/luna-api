@@ -18,6 +18,9 @@ from src.config import settings
 from src.ports.rag import IRAGAdapter
 from src.domain.entities.knowledge import RetrievalResultEntity
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class RAGAdapter(IRAGAdapter):
     """RAG adapter for retrieval using LlamaIndex + Qdrant."""
@@ -126,6 +129,12 @@ class RAGAdapter(IRAGAdapter):
             )
 
             nodes = await retriever.aretrieve(query)
+
+            logger.info(f"RAG retrieve query: '{query}' -> found {len(nodes)} nodes")
+            for i, node in enumerate(nodes[:5], 1):  # log top 5
+                score = node.score or 0.0
+                preview = node.text[:200] if node.text else ""
+                logger.info(f"  [{i}] Score: {score:.4f} | Content preview: {preview}...")
 
             # reranked_nodes = await self._rerank(query, combined_nodes[:limit * 2])
 
