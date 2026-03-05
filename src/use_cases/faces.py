@@ -12,7 +12,7 @@ from src.domain.entities.vision import (
     FaceRegistrationResult,
     RegisterFaceInput,
 )
-from src.ports.storage import IFileStorage
+from src.ports.services import IFileStorage
 from src.ports.vision import IFaceRecognitionAdapter, IFaceVectorStore
 
 

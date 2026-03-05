@@ -5,8 +5,8 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from src.domain.entities.chat import Character, UserContext
-from src.ports.agent import IAgentAdapter
-from src.ports.chat_repository import IChatRepository
+from src.ports.services import IAgentAdapter
+from src.ports.repositories import IChatRepository
 
 
 class BaseChatUseCase(ABC):

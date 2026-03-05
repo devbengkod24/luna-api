@@ -9,7 +9,6 @@ services:
       - ollama_models:/root/.ollama
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
-      # OLLAMA_MODEL: ${LLM_MODEL}
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
@@ -50,13 +49,29 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+    # environment:
+    #   QDRANT__SERVICE__GRPC_PORT: 6334
+    restart: unless-stopped
+    networks:
+      - fastapi
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: minio
+    command: server /data --console-address ":9001"
     environment:
-      QDRANT__SERVICE__GRPC_PORT: 6334
-    # healthcheck:
-    #   test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6333/healthz || exit 1"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
     restart: unless-stopped
     networks:
       - fastapi
@@ -64,8 +79,6 @@ services:
   fastapi:
     build:
       context: .
-      # Default: Dockerfile.cpu (CPU)
-      # For GPU: use docker-compose -f docker-compose.yml -f docker-compose.gpu.yml
       dockerfile: Dockerfile.cpu
     container_name: fastapi
     ports:
@@ -96,6 +109,13 @@ services:
       OLLAMA_HOST: ollama
       OLLAMA_PORT: 11434
 
+      # Minio
+      MINIO_ENDPOINT: minio
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET_NAME: vsa-files
+      MINIO_SECURE: false
+
       # Face Recognition
       ENABLE_FACE_RECOGNITION: ${ENABLE_FACE_RECOGNITION}
       FACE_RECOGNITION_MODEL: ${FACE_RECOGNITION_MODEL}
@@ -117,10 +137,12 @@ services:
         condition: service_started
       ollama:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     command: uvicorn src.drivers.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
     networks:
       - fastapi
-    restart: unless-stopped
 
 volumes:
   postgres_data:
@@ -130,6 +152,8 @@ volumes:
   ollama_models:
     driver: local
   ai_cache:
+    driver: local
+  minio_data:
     driver: local
 
 networks:

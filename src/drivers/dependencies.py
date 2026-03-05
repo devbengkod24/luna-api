@@ -3,18 +3,12 @@ from typing import AsyncGenerator
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.adapters.postgres.connection import DatabaseConnection
-from src.adapters.postgres.chat_repository import ChatRepository
-from src.adapters.llamaindex.rag_adapter import RAGAdapter
-from src.adapters.qdrant.rag_store import RAGStore
-from src.adapters.qdrant.face_store import FaceStore
-from src.adapters.filesystem.storage_adapter import FileStorageAdapter
-from src.adapters.whisper.stt_adapter import STTAdapter
-from src.adapters.insightface.face_recognition_adapter import FaceRecognitionAdapter
-from src.adapters.bytetrack.tracker_adapter import TrackerAdapter
-from src.adapters.langchain.agent_adapter import AgentAdapter
-from src.adapters.huggingface.emotion_adapter import EmotionDetectionAdapter
-from src.adapters.huggingface.tts_adapter import TTSAdapter
+from src.adapters.persistence import DatabaseConnection, ChatRepository
+from src.adapters.rag import RAGAdapter, RAGStore
+from src.adapters.vision import FaceStore, FaceRecognitionAdapter, TrackerAdapter, EmotionDetectionAdapter
+from src.adapters.storage import FileStorageAdapter
+from src.adapters.speech import STTAdapter, TTSAdapter
+from src.adapters.agent import AgentAdapter
 from src.domain.entities.storage import StorageType
 from src.config import settings
 from src.use_cases.chat_text import ChatTextUseCase

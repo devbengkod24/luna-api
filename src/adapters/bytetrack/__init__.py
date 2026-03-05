@@ -1,2 +1,0 @@
-"""ByteTrack adapters."""
-

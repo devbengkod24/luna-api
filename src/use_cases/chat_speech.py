@@ -1,7 +1,7 @@
 """Chat speech use case."""
 from typing import AsyncGenerator, Optional
 
-from src.ports.speech import ISTTAdapter, ITTSAdapter
+from src.ports.services import ISTTAdapter, ITTSAdapter
 from src.domain.entities.chat import Character, UserContext
 from src.use_cases.base_chat import BaseChatUseCase
 

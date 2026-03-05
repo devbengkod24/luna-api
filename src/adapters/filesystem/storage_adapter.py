@@ -9,7 +9,7 @@ import aiofiles.os
 
 from src.config import settings
 from src.domain.entities.storage import StorageType
-from src.ports.storage import IFileStorage
+from src.ports.services import IFileStorage
 
 logger = logging.getLogger(__name__)
 

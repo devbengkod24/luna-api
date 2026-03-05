@@ -1,1 +1,0 @@
-"""Speech adapter package."""

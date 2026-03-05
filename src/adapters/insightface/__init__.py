@@ -1,2 +1,0 @@
-"""Vision adapter module."""
-

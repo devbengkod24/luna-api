@@ -9,8 +9,7 @@ import aiofiles
 import uuid
 
 from src.config import settings
-from src.ports.rag import IRAGStore
-from src.ports.storage import IFileStorage
+from src.ports.services import IRAGStore, IFileStorage
 
 logger = logging.getLogger(__name__)
 

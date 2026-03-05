@@ -1,11 +1,11 @@
-﻿"""Chat text use case."""
+"""Chat text use case."""
 
 from typing import AsyncGenerator, Optional
 
 from src.domain.entities.chat import Character, UserContext
 from src.use_cases.base_chat import BaseChatUseCase
 
-from src.ports.speech import ITTSAdapter
+from src.ports.services import ITTSAdapter
 
 class ChatTextUseCase(BaseChatUseCase):
     """Use case for text-based chat with streaming response."""

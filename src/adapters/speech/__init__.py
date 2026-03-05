@@ -1,0 +1,1 @@
+"""Speech adapters (STT/TTS)."""

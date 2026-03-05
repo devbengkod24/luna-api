@@ -1,2 +1,0 @@
-"""Qdrant adapter module."""
-
