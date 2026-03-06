@@ -11,7 +11,7 @@ from src.drivers import dependencies
 from src.config import settings
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/v1/vision", tags=["vision"])
+router = APIRouter(prefix="/vision", tags=["vision"])
 
 async def safe_send_json(websocket: WebSocket, data: dict) -> None:
     """Safely send JSON to WebSocket, handling disconnects gracefully."""

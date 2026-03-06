@@ -1,58 +1,39 @@
 """SQLAlchemy database models."""
 from datetime import datetime
-from typing import Any, Dict
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from uuid_extensions import uuid7
 
 Base = declarative_base()
 
 
-class ChatSession(Base):
+class ChatSessionModel(Base):
     """Chat session model - stores conversation sessions."""
     
     __tablename__ = "chat_sessions"
     
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    uuid = Column(String(36), unique=True, nullable=False, index=True)
-    title = Column(String(255), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    id: Mapped[uuid7] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
-    # Relationship
-    messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert model to dictionary."""
-        return {
-            "id": self.id,
-            "uuid": self.uuid,
-            "title": self.title,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
+    messages: Mapped[list["MessageModel"]] = relationship("MessageModel", back_populates="session")
 
-
-class Message(Base):
+class MessageModel(Base):
     """Message model - stores individual messages in a chat session."""
     
     __tablename__ = "messages"
     
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    session_id = Column(Integer, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
-    role = Column(String(20), nullable=False)  # 'user' or 'assistant'
-    content = Column(Text, nullable=False)
-    context = Column(JSON, nullable=True)  # Store emotion, name, etc.
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    id: Mapped[uuid7] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    session_id: Mapped[uuid7] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
+    base64_audio: Mapped[str] = mapped_column(Text, nullable=True)
+    character: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(JSONB, nullable=False, default=dict)
+    context: Mapped[dict] = mapped_column(JSONB, nullable=True, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
-    # Relationship
-    session = relationship("ChatSession", back_populates="messages")
+    session: Mapped["ChatSessionModel"] = relationship("ChatSessionModel", back_populates="messages")
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert model to dictionary."""
-        return {
-            "role": self.role,
-            "content": self.content,
-            "context": self.context,
-        }
 

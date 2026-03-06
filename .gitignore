@@ -54,3 +54,5 @@ Thumbs.db
 .coverage
 coverage.xml
 htmlcov/
+
+/storage

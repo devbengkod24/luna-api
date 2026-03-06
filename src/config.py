@@ -1,6 +1,8 @@
 """Application configuration."""
 
+from functools import lru_cache
 from typing import Set
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,14 +13,15 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # Application
-    environment: str = "development"
-    debug: bool = True
-    log_level: str = "INFO"
-    app_name: str = "VSA-BE-FastAPI-v2"
-    app_version: str = "1.0.0"
+    app_name: str = Field(default="VSA-BE-FastAPI-v2", alias="APP_NAME")
+    app_version: str = Field(default="1.0.0", alias="APP_VERSION")
+    environment: str = Field(default="development", alias="ENVIRONMENT")
+    debug: bool = Field(default=True, alias="DEBUG")
+    api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
 
     # Database
     postgres_host: str
@@ -26,6 +29,9 @@ class Settings(BaseSettings):
     postgres_db: str
     postgres_user: str
     postgres_password: str
+    database_pool_size: int = Field(default=20, alias="DATABASE_POOL_SIZE")
+    database_max_overflow: int = Field(default=10, alias="DATABASE_MAX_OVERFLOW")
+
 
     @property
     def database_url(self) -> str:
@@ -50,27 +56,41 @@ class Settings(BaseSettings):
     knowledge_collection_name: str = "knowledge_collection"
     faces_collection_name: str = "faces_collection"
 
-    # LLM
-    llm_model: str = "llama3.1:8b"
-    embedding_model: str = "embeddinggemma:300m"
-    reranker_model: str = "jina-reranker-v3-Q4_K_M.gguf"
-    llm_temperature: float = 0.7
-    web_search_enabled: bool = True                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
-    
-    # Ollama
-    ollama_host: str = "ollama"
-    ollama_port: int = 11434
+    # Qdrant
+    qdrant_host: str = Field(default="localhost", alias="QDRANT_HOST")
+    qdrant_port: int = Field(default=6333, alias="QDRANT_PORT")
+    qdrant_grpc_port: int = Field(default=6334, alias="QDRANT_GRPC_PORT")
+    knowledge_collection_name: str = Field(
+        default="knowledge_collection", alias="QDRANT_COLLECTION_NAME"
+    )
+    faces_collection_name: str = Field(default="faces_collection", alias="FACES_COLLECTION_NAME")
 
+    # MinIO
+    minio_endpoint: str = Field(..., alias="MINIO_ENDPOINT")
+    minio_access_key: str = Field(..., alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(..., alias="MINIO_SECRET_KEY")
+    minio_bucket_name: str = Field(default="luna-files", alias="MINIO_BUCKET_NAME")
+    minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
+
+    # Ollama
+    ollama_base_url: str = Field(
+        default="http://localhost:11434", alias="OLLAMA_BASE_URL"
+    )
+    ollama_llm_model: str = Field(default="llama3.1:8b", alias="OLLAMA_LLM_MODEL")
+    ollama_embedding_model: str = Field(
+        default="embeddinggemma:300m", alias="OLLAMA_EMBEDDING_MODEL"
+    )
+    ollama_temperature: float = Field(default=0.4, alias="OLLAMA_TEMPERATURE")
+    ollama_top_p: float = Field(default=0.9, alias="OLLAMA_TOP_P")
+    ollama_max_tokens: int = Field(default=1024, alias="OLLAMA_MAX_TOKENS")
+
+    gpu_device: int = Field(default=-1, alias="GPU_DEVICE") # -1 for CPU, 0+ for GPU
+    
     # Face Recognition (InsightFace)
-    enable_face_recognition: bool = True
-    face_recognition_model: str = (
-        "buffalo_sc"  # SCRFD detector + ArcFace recognition
-    )
-    gpu_device: int = 0  # -1 for CPU, 0+ for GPU
-    face_detection_size: int = 320  # Detection size (320 faster, 640 more accurate)
-    face_similarity_threshold: float = (
-        0.5  # Cosine similarity threshold (0.4-0.6 recommended)
-    )
+    enable_face_recognition: bool = Field(default=True, alias="ENABLE_FACE_RECOGNITION")
+    face_recognition_model: str = Field(default="buffalo_sc", alias="FACE_RECOGNITION_MODEL")
+    face_detection_size: int = Field(default=320, alias="FACE_DETECTION_SIZE") # Detection size (320 faster, 640 more accurate)
+    face_similarity_threshold: float = Field(default=0.5, alias="FACE_SIMILARITY_THRESHOLD") # Cosine similarity threshold (0.4-0.6 recommended)
 
     faces_dir: str = "storage/faces"
     face_max_batch_size: int = 100  # Max faces per request
@@ -113,5 +133,9 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
 
 
-# Global settings instance
-settings = Settings()
+@lru_cache()
+def get_settings() -> Settings:
+    """Get cached settings instance."""
+    return Settings()
+
+settings = get_settings()

@@ -21,7 +21,7 @@ from src.use_cases.chat_speech import ChatSpeechUseCase
 from src.use_cases.chat_text import ChatTextUseCase
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/v1/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["chat"])
 
 SSE_HEADERS = {
     "Cache-Control": "no-cache",

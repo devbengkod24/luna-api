@@ -12,11 +12,11 @@ from typing import Optional
 
 from faster_whisper import WhisperModel
 
-from src.ports.services import ISTTAdapter
+from src.ports.services import ISTTService
 from src.config import settings
 
 
-class STTAdapter(ISTTAdapter):
+class WhisperSTTService(ISTTService):
     """STT adapter using faster-whisper."""
     
     def __init__(

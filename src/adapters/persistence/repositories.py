@@ -4,33 +4,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.adapters.postgres.models import ChatSession, Message
+from src.adapters.persistence.models import ChatSessionModel, MessageModel
 from src.domain.entities.chat import ChatSessionEntity, MessageEntity
 from src.ports.repositories import IChatRepository
 
 
-class ChatRepository(IChatRepository):
-    """Repository for chat-related database operations."""
-    
+class ChatRepository(IChatRepository):    
     def __init__(self, session: AsyncSession):
-        """Initialize repository with database session.
-        
-        Args:
-            session: SQLAlchemy async session
-        """
         self.session = session
     
-    async def create_session(self, uuid: str, title: str) -> ChatSessionEntity:
-        """Create a new chat session.
-        
-        Args:
-            uuid: Unique identifier for the session
-            title: Session title
-            
-        Returns:
-            ChatSessionEntity: Created session entity
-        """
-        session = ChatSession(uuid=uuid, title=title)
+    async def create(self, uuid: str, title: str) -> ChatSessionEntity:
+        session = ChatSessionModel(uuid=uuid, title=title)
         self.session.add(session)
         await self.session.flush()
         await self.session.refresh(session)

@@ -20,7 +20,7 @@ from src.use_cases.knowledge import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/v1/knowledge", tags=["knowledge"])
+router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 @router.post("/upload", response_model=UploadKnowledgeResponse)
 async def upload_knowledge(

@@ -20,7 +20,7 @@ from src.drivers.rest.schemas.face import (
 
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/v1/face", tags=["face"])
+router = APIRouter(prefix="/face", tags=["face"])
 
 @router.post("/register", response_model=RegisterFacesResponse)
 async def register_faces(

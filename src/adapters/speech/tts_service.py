@@ -9,13 +9,13 @@ import torch
 from transformers import VitsModel, AutoTokenizer
 from scipy.io import wavfile
 
-from src.ports.services import ITTSAdapter
+from src.ports.services import ITTSService
 
 logger = logging.getLogger(__name__)
 
 
-class TTSAdapter(ITTSAdapter):
-    """Adapter for Facebook MMS-TTS Indonesian model."""
+class MMSTTSService(ITTSService):
+    """Text-to-Speech service using Facebook MMS-TTS Indonesian model."""
     
     MODEL_REPO = "facebook/mms-tts-ind"
     

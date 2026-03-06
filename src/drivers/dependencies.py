@@ -3,7 +3,8 @@ from typing import AsyncGenerator
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.adapters.persistence import DatabaseConnection, ChatRepository
+from src.adapters.persistence import DatabaseConnection
+from src.adapters.persistence.repositories import ChatRepository
 from src.adapters.rag import RAGAdapter, RAGStore
 from src.adapters.vision import FaceStore, FaceRecognitionAdapter, TrackerAdapter, EmotionDetectionAdapter
 from src.adapters.storage import FileStorageAdapter
@@ -26,11 +27,11 @@ from src.use_cases.knowledge import (
     DownloadKnowledgeUseCase,
     DeleteKnowledgeUseCase,
 )
-# Global instances (initialized in main.py)
+
 db_connection: DatabaseConnection | None = None
-rag_adapter: RAGAdapter | None = None  # retriever (LlamaIndex)
-rag_store: RAGStore | None = None      # store (Qdrant)
-rag_storage: FileStorageAdapter | None = None  # filesystem storage for RAG files
+rag_adapter: RAGAdapter | None = None
+rag_store: RAGStore | None = None 
+rag_storage: FileStorageAdapter | None = None
 faces_storage: FileStorageAdapter | None = None
 stt_adapter: STTAdapter | None = None
 tts_adapter: TTSAdapter | None = None
@@ -42,80 +43,100 @@ agent_adapter: AgentAdapter | None = None
 
 
 def initialize_dependencies() -> None:
-    """Initialize global dependencies."""
-    global db_connection, rag_adapter, rag_store, rag_storage, faces_storage
-    global stt_adapter, tts_adapter
-    global face_recognition_adapter, face_store, tracker_adapter
-    global emotion_detection_adapter, agent_adapter
-
+    """Initialize all global adapter instances used by the API."""
     try:
-        db_connection = DatabaseConnection(url=settings.database_url)
-
-        # RAG components
-        rag_adapter = RAGAdapter()  # retriever
-        rag_store = RAGStore()      # vector DB store
-
-        # Initialize file storage and metadata storage for RAG documents
-        rag_storage = FileStorageAdapter(
-            storage_type=StorageType.RAG,
-        )
-        faces_storage = FileStorageAdapter(
-            storage_type=StorageType.FACES
-        )
-        
-        stt_adapter = STTAdapter(
-            model_size=settings.whisper_model, 
-            device=settings.gpu_device, 
-            compute_type="int8"
-        )
-        
-        # Initialize TTS adapter
-        try:
-            tts_adapter = TTSAdapter(
-                voice_clone_dir=settings.voice_clone_dir
-            )
-            print("TTS adapter initialized successfully")
-        except Exception as e:
-            print(f"Warning: Could not initialize TTS adapter: {e}")
-            tts_adapter = None
-        
-        agent_adapter = AgentAdapter(
-            model=settings.llm_model,
-            rag_adapter=rag_adapter,
-            web_search_enabled=settings.web_search_enabled,
-        )
-        
-        
-        if settings.enable_face_recognition:
-            try:
-                face_recognition_adapter = FaceRecognitionAdapter(
-                    model_name=settings.face_recognition_model,
-                    ctx_id=settings.gpu_device,
-                )
-                face_store = FaceStore()
-                
-                tracker_adapter = TrackerAdapter(
-                    max_age=settings.tracker_max_age,
-                    min_hits=settings.tracker_min_hits,
-                    init_tracker_min_score=settings.tracker_min_score,
-                )
-                
-                if settings.enable_emotion_detection:
-                    emotion_detection_adapter = EmotionDetectionAdapter(
-                    )
-                else:
-                    emotion_detection_adapter = None
-                    print("Emotion detection disabled")
-              
-                print("Face recognition initialized successfully")
-            except Exception as e:
-                print(f"Warning: Could not initialize face recognition: {e}")
-        else:
-            print("Face recognition disabled")
-
+        _init_database()
+        _init_rag_components()
+        _init_storage()
+        _init_speech()
+        _init_agent()
+        _init_vision_components()
     except Exception as e:
         print(f"Error initializing dependencies: {e}")
         raise
+
+
+def _init_database() -> None:
+    """Initialize database connection."""
+    global db_connection
+    db_connection = DatabaseConnection(url=settings.database_url)
+
+
+def _init_rag_components() -> None:
+    """Initialize RAG retriever and store."""
+    global rag_adapter, rag_store
+    rag_adapter = RAGAdapter()  # retriever
+    rag_store = RAGStore()      # vector DB store
+
+
+def _init_storage() -> None:
+    """Initialize file storage adapters."""
+    global rag_storage, faces_storage
+    rag_storage = FileStorageAdapter(storage_type=StorageType.RAG)
+    faces_storage = FileStorageAdapter(storage_type=StorageType.FACES)
+
+
+def _init_speech() -> None:
+    """Initialize speech adapters (STT/TTS)."""
+    global stt_adapter, tts_adapter
+
+    stt_adapter = STTAdapter(
+        model_size=settings.whisper_model,
+        device=settings.gpu_device,
+        compute_type="int8",
+    )
+
+    try:
+        tts_adapter = TTSAdapter(
+            voice_clone_dir=settings.voice_clone_dir,
+        )
+        print("TTS adapter initialized successfully")
+    except Exception as e:
+        print(f"Warning: Could not initialize TTS adapter: {e}")
+        tts_adapter = None
+
+
+def _init_agent() -> None:
+    """Initialize agent adapter."""
+    global agent_adapter
+
+    agent_adapter = AgentAdapter(
+        model=settings.llm_model,
+        rag_adapter=rag_adapter,
+        web_search_enabled=settings.web_search_enabled,
+    )
+
+
+def _init_vision_components() -> None:
+    """Initialize face recognition, tracker, and emotion detection."""
+    global face_recognition_adapter, face_store, tracker_adapter, emotion_detection_adapter
+
+    if not settings.enable_face_recognition:
+        print("Face recognition disabled")
+        return
+
+    try:
+        face_recognition_adapter = FaceRecognitionAdapter(
+            model_name=settings.face_recognition_model,
+            ctx_id=settings.gpu_device,
+        )
+        face_store = FaceStore()
+
+        tracker_adapter = TrackerAdapter(
+            max_age=settings.tracker_max_age,
+            min_hits=settings.tracker_min_hits,
+            init_tracker_min_score=settings.tracker_min_score,
+        )
+
+        if settings.enable_emotion_detection:
+            emotion_detection_adapter = EmotionDetectionAdapter()
+        else:
+            emotion_detection_adapter = None
+            print("Emotion detection disabled")
+
+        print("Face recognition initialized successfully")
+    except Exception as e:
+        print(f"Warning: Could not initialize face recognition: {e}")
 
 async def initialize_face_store(run_seed: bool = False):
     if not face_store:

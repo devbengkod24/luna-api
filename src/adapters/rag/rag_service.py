@@ -15,14 +15,14 @@ from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.models import Distance, VectorParams, SparseVectorParams
 
 from src.config import settings
-from src.ports.services import IRAGAdapter
+from src.ports.services import IRAGService
 from src.domain.entities.knowledge import RetrievalResultEntity
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-class RAGAdapter(IRAGAdapter):
+class LlamaIndexRAGService(IRAGService):
     """RAG adapter for retrieval using LlamaIndex + Qdrant."""
 
     def __init__(self):

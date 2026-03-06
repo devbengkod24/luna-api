@@ -25,38 +25,23 @@ class UserContext:
     name: str | None = None
     nim: str | None = None
 
-    def to_dict(self) -> dict | None:
-        """Convert to dictionary. Returns None if all fields are None."""
-        result = {
-            "emotion": self.emotion,
-            "name": self.name,
-            "nim": self.nim,
-        }   
-
-        if all(value is None for value in result.values()):
-            return None
-        return result
-
-
 @dataclass
-class MessageEntity:
-    """Message entity - represents a single message in a chat."""
+class ChatSession:
+    """Chat session - represents a chat session."""
 
-    session_id: int
-    role: UserRole
-    content: str
-    id: int | None = None
-    context: UserContext | None = None
-    created_at: datetime | None = None
-
-
-@dataclass
-class ChatSessionEntity:
-    """Chat session entity - represents a conversation session."""
-
-    uuid: str
     title: str
-    messages: list[MessageEntity]
-    id: int | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    id: Optional[str] = None
+
+@dataclass
+class Message:
+    """Message - represents a message in a chat session."""
+
+    base64_audio: str | None = None
+    character: str
+    content: dict
+    context: UserContext | None = None
+    created_at: datetime
+    id: Optional[str] = None
+    session_id: str

@@ -1,12 +1,8 @@
-"""Persistence adapters (database, repositories, models).
+"""Persistence adapters """
 
-This package is organized by *function* (persistence) instead of vendor/framework.
-Implementations currently live in `src.adapters.postgres` and are re-exported here.
-"""
-
-from src.adapters.postgres.connection import DatabaseConnection
-from src.adapters.postgres.chat_repository import ChatRepository
-from src.adapters.postgres.models import Base, ChatSession, Message
+from src.adapters.persistence.database import DatabaseConnection
+from src.adapters.persistence.repositories import ChatRepository
+from src.adapters.persistence.models import Base, ChatSession, Message
 
 __all__ = [
     "DatabaseConnection",

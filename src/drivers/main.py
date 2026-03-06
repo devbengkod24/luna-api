@@ -72,10 +72,10 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(chat.router)
-app.include_router(face.router)
-app.include_router(knowledge.router)
-app.include_router(vision.router)
+app.include_router(chat.router, prefix=settings.api_v1_prefix)
+app.include_router(face.router, prefix=settings.api_v1_prefix)
+app.include_router(knowledge.router, prefix=settings.api_v1_prefix)
+app.include_router(vision.router, prefix=settings.api_v1_prefixa)
 
 @app.get("/")
 async def root():
@@ -83,4 +83,5 @@ async def root():
     return {
         "app": settings.app_name,
         "version": settings.app_version,
+        "docs": "/docs",
     }

@@ -1,49 +1,57 @@
-"""Database configuration and session management."""
+"""Database connection management."""
 from typing import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    create_async_engine,
-    async_sessionmaker,
-)
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
-from src.config import settings
-
-# Create async engine
-engine = create_async_engine(
-    settings.database_url,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
-    echo=settings.debug,
-)
-
-# Create async session factory
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
-
-# Create base class for models
-Base = declarative_base()
+from src.adapters.persistence.models import Base
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Get database session."""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+class DatabaseConnection:
+    """Manage database connection and session lifecycle."""
 
+    def __init__(self, url: str):
+        """Initialize database connection.
 
-async def init_db():
-    """Initialize database tables."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        Args:
+            url: PostgreSQL connection string (async format: postgresql+asyncpg://...)
+        """
+        self.engine = create_async_engine(
+            url,
+            poolclass=NullPool,
+            future=True,
+            echo=False,
+        )
+        self.async_session_maker = async_sessionmaker(
+            self.engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
 
+    async def init_db(self):
+        """Initialize the database."""
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
-async def close_db():
-    """Close database connections."""
-    await engine.dispose()
+    async def reset_db(self):
+        """Drop all tables from the database."""
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+
+    async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
+        """Get async database session.
+
+        Yields:
+            AsyncSession: SQLAlchemy async session
+        """
+        async with self.async_session_maker() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    async def close(self):
+        """Close database connection."""
+        await self.engine.dispose()

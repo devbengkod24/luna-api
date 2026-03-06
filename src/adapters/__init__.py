@@ -1,2 +1,2 @@
-"""Adapters module - implementations of ports."""
+"""Adapters layer - Implementation of ports."""
 
