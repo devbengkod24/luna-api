@@ -65,3 +65,5 @@ transformers==4.57.3
 python-dotenv==1.2.1
 aiofiles==25.1.0
 ctranslate2==4.6.3
+
+uuid7==0.1.0

@@ -26,7 +26,7 @@ class IAgentService(ABC):
 
 
 class IRAGService(ABC):
-    """Interface for RAG retrieval (read/search)."""
+    """Interface for RAG retrieval and document store."""
 
     @abstractmethod
     async def retrieve(self, query: str, limit: int = 5) -> list[RetrievalResultEntity]:
@@ -47,7 +47,7 @@ class IRAGService(ABC):
     @abstractmethod
     async def get_all_documents_metadata(self) -> list[dict]:
         ...
-    
+
 
 class IStorageService(ABC):
     """Storage service interface - simple file operations only."""

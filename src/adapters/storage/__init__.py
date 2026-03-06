@@ -1,9 +1,6 @@
-"""Storage adapters (file/object storage).
+"""Storage adapters (file/object storage)."""
 
-Organized by *function* (storage) instead of framework/vendor.
-"""
+from .minio_service import MinIOStorageService
 
-from src.adapters.filesystem.storage_adapter import FileStorageAdapter
-
-__all__ = ["FileStorageAdapter"]
+__all__ = ["MinIOStorageService"]
 

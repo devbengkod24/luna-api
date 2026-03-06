@@ -1,14 +1,7 @@
-"""RAG adapters (retriever + vector store).
+"""RAG adapters: retrieval + vector store (single RagService)."""
 
-Organized by *function* (rag) instead of framework/vendor.
-Current implementations are re-exported from existing modules.
-"""
-
-from src.adapters.llamaindex.rag_adapter import RAGAdapter
-from src.adapters.qdrant.rag_store import RAGStore
+from src.adapters.rag.rag_service import RagService
 
 __all__ = [
-    "RAGAdapter",
-    "RAGStore",
+    "RagService",
 ]
-

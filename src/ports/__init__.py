@@ -1,26 +1,22 @@
-"""Ports module.
+"""Ports module."""
 
-This project organizes ports by **repositories** (persistence contracts) and
-**services** (external / non-DB contracts).
-"""
-
-from src.ports.repositories import IChatRepository
+from src.ports.repositories import IChatSessionRepository, IMessageRepository
 from src.ports.services import (
-    IAgentAdapter,
-    IRAGAdapter,
-    IRAGStore,
-    IFileStorage,
-    ISTTAdapter,
-    ITTSAdapter,
+    IAgentService,
+    IRAGService,
+    IStorageService,
+    ISTTService,
+    ITTSService,
 )
 
 __all__ = [
-    "IChatRepository",
-    "IAgentAdapter",
-    "IRAGAdapter",
-    "IRAGStore",
+    "IChatSessionRepository",
+    "IMessageRepository",
+    "IAgentService",
+    "IRAGService",
     "IFileStorage",
-    "ISTTAdapter",
-    "ITTSAdapter",
+    "IStorageService",
+    "ISTTService",
+    "ITTSService",
 ]
 

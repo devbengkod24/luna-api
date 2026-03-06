@@ -4,41 +4,24 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.persistence import DatabaseConnection
-from src.adapters.persistence.repositories import ChatRepository
-from src.adapters.rag import RAGAdapter, RAGStore
-from src.adapters.vision import FaceStore, FaceRecognitionAdapter, TrackerAdapter, EmotionDetectionAdapter
-from src.adapters.storage import FileStorageAdapter
+from src.adapters.persistence import ChatSessionRepository, MessageRepository
+from src.adapters.rag import RagService
+from src.adapters.vision import FaceStore, FaceRecognitionService, TrackerService, EmotionDetectionService
+from src.adapters.storage import MinIOStorageService
 from src.adapters.speech import STTAdapter, TTSAdapter
 from src.adapters.agent import AgentAdapter
-from src.domain.entities.storage import StorageType
 from src.config import settings
-from src.use_cases.chat_text import ChatTextUseCase
-from src.use_cases.chat_speech import ChatSpeechUseCase
-from src.use_cases.chat_history import GetChatHistoryUseCase, GetChatSessionUseCase
-from src.use_cases.vision import VisionUseCase
-from src.use_cases.faces import (
-    RegisterFacesUseCase,
-    GetFacesUseCase,
-    DeleteFaceUseCase,
-)
-from src.use_cases.knowledge import (
-    UploadKnowledgeUseCase,
-    ListKnowledgeUseCase,
-    DownloadKnowledgeUseCase,
-    DeleteKnowledgeUseCase,
-)
 
 db_connection: DatabaseConnection | None = None
-rag_adapter: RAGAdapter | None = None
-rag_store: RAGStore | None = None 
-rag_storage: FileStorageAdapter | None = None
-faces_storage: FileStorageAdapter | None = None
+rag_service: RagService | None = None
+rag_storage: MinIOStorageService | None = None
+faces_storage: MinIOStorageService | None = None
 stt_adapter: STTAdapter | None = None
 tts_adapter: TTSAdapter | None = None
-face_recognition_adapter: FaceRecognitionAdapter | None = None
+face_recognition_adapter: FaceRecognitionService | None = None
 face_store: FaceStore | None = None
-tracker_adapter: TrackerAdapter | None = None
-emotion_detection_adapter: EmotionDetectionAdapter | None = None
+tracker_adapter: TrackerService | None = None
+emotion_detection_adapter: EmotionDetectionService | None = None
 agent_adapter: AgentAdapter | None = None
 
 
@@ -46,11 +29,11 @@ def initialize_dependencies() -> None:
     """Initialize all global adapter instances used by the API."""
     try:
         _init_database()
-        _init_rag_components()
+        _init_rag_service()
         _init_storage()
         _init_speech()
         _init_agent()
-        _init_vision_components()
+        _init_vision()
     except Exception as e:
         print(f"Error initializing dependencies: {e}")
         raise
@@ -62,18 +45,17 @@ def _init_database() -> None:
     db_connection = DatabaseConnection(url=settings.database_url)
 
 
-def _init_rag_components() -> None:
-    """Initialize RAG retriever and store."""
-    global rag_adapter, rag_store
-    rag_adapter = RAGAdapter()  # retriever
-    rag_store = RAGStore()      # vector DB store
+def _init_rag_service() -> None:
+    """Initialize RAG service (retrieval + store)."""
+    global rag_service
+    rag_service = RagService()
 
 
 def _init_storage() -> None:
     """Initialize file storage adapters."""
     global rag_storage, faces_storage
-    rag_storage = FileStorageAdapter(storage_type=StorageType.RAG)
-    faces_storage = FileStorageAdapter(storage_type=StorageType.FACES)
+    rag_storage = MinIOStorageService()
+    faces_storage = MinIOStorageService()
 
 
 def _init_speech() -> None:
@@ -102,12 +84,12 @@ def _init_agent() -> None:
 
     agent_adapter = AgentAdapter(
         model=settings.llm_model,
-        rag_adapter=rag_adapter,
+        rag_service=rag_service,
         web_search_enabled=settings.web_search_enabled,
     )
 
 
-def _init_vision_components() -> None:
+def _init_vision() -> None:
     """Initialize face recognition, tracker, and emotion detection."""
     global face_recognition_adapter, face_store, tracker_adapter, emotion_detection_adapter
 
@@ -116,20 +98,20 @@ def _init_vision_components() -> None:
         return
 
     try:
-        face_recognition_adapter = FaceRecognitionAdapter(
+        face_recognition_adapter = FaceRecognitionService(
             model_name=settings.face_recognition_model,
             ctx_id=settings.gpu_device,
         )
         face_store = FaceStore()
 
-        tracker_adapter = TrackerAdapter(
+        tracker_adapter = TrackerService(
             max_age=settings.tracker_max_age,
             min_hits=settings.tracker_min_hits,
             init_tracker_min_score=settings.tracker_min_score,
         )
 
         if settings.enable_emotion_detection:
-            emotion_detection_adapter = EmotionDetectionAdapter()
+            emotion_detection_adapter = EmotionDetectionService()
         else:
             emotion_detection_adapter = None
             print("Emotion detection disabled")
@@ -138,39 +120,37 @@ def _init_vision_components() -> None:
     except Exception as e:
         print(f"Warning: Could not initialize face recognition: {e}")
 
-async def initialize_face_store(run_seed: bool = False):
-    if not face_store:
-        raise RuntimeError("Face store not initialized")
-    await face_store.initialize(collection_name=settings.faces_collection_name)
+# async def initialize_face_store(run_seed: bool = False):
+#     if not face_store:
+#         raise RuntimeError("Face store not initialized")
+#     await face_store.initialize(collection_name=settings.faces_collection_name)
 
-    if run_seed:
-        if not face_recognition_adapter:
-            raise RuntimeError("Face recognition not initialized")
-        use_case = RegisterFacesUseCase(face_recognition_adapter, face_store, faces_storage)
-        await use_case.seed_faces(
-            storage_path=settings.faces_dir, 
-            supported_extensions=settings.faces_allowed_extensions
-        )
-        print("Faces initialized successfully")
-    else:
-        print("Faces disabled")
+#     if run_seed:
+#         if not face_recognition_adapter:
+#             raise RuntimeError("Face recognition not initialized")
+#         use_case = RegisterFacesUseCase(face_recognition_adapter, face_store, faces_storage)
+#         await use_case.seed_faces(
+#             storage_path=settings.faces_dir, 
+#             supported_extensions=settings.faces_allowed_extensions
+#         )
+#         print("Faces initialized successfully")
+#     else:
+#         print("Faces disabled")
 
-async def initialize_rag_store(run_seed: bool = False):
-    if not rag_adapter or not rag_store:
-        raise RuntimeError("RAG adapter/store not initialized")
+# async def initialize_rag_store(run_seed: bool = False):
+#     if not rag_service:
+#         raise RuntimeError("RAG service not initialized")
 
-    # Init retriever & store (share same Qdrant collection)
-    await rag_adapter.initialize()
-    await rag_store.initialize()
+#     await rag_service.initialize()
 
-    if run_seed:
-        if not rag_storage:
-            raise RuntimeError("RAG file storage not initialized")
-        use_case = UploadKnowledgeUseCase(rag_storage, rag_store)
-        await use_case.seed_knowledge()
-        print("Knowledge initialized successfully")
-    else:
-        print("Knowledge disabled")
+#     if run_seed:
+#         if not rag_storage:
+#             raise RuntimeError("RAG file storage not initialized")
+#         use_case = UploadKnowledgeUseCase(rag_storage, rag_service)
+#         await use_case.seed_knowledge()
+#         print("Knowledge initialized successfully")
+#     else:
+#         print("Knowledge disabled")
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Get database session."""
@@ -185,9 +165,9 @@ async def get_chat_text_use_case(
     session: AsyncSession = Depends(get_db_session)
 ) -> ChatTextUseCase:
     """Get chat text use case."""
-    if not rag_adapter:
-        raise RuntimeError("LLM adapter or RAG adapter not initialized")
-    repository = ChatRepository(session)
+    if not rag_service:
+        raise RuntimeError("RAG service not initialized")
+    repository = ChatSessionRepository(session)
     return ChatTextUseCase(repository, agent_adapter, tts_adapter)
 
 
@@ -197,7 +177,7 @@ async def get_chat_speech_use_case(
     """Get chat speech use case."""
     if not stt_adapter:
         raise RuntimeError("STT adapter not initialized")
-    repository = ChatRepository(session)
+    repository = ChatSessionRepository(session)
     return ChatSpeechUseCase(repository, agent_adapter, stt_adapter, tts_adapter)
 
 
@@ -205,14 +185,14 @@ async def get_history_use_case(
     session: AsyncSession = Depends(get_db_session)
 ) -> GetChatHistoryUseCase:
     """Get chat history use case."""
-    repository = ChatRepository(session)
+    repository = ChatSessionRepository(session)
     return GetChatHistoryUseCase(repository)
 
 async def get_session_use_case(
     session: AsyncSession = Depends(get_db_session)
 ) -> GetChatSessionUseCase:
     """Get chat session use case."""
-    repository = ChatRepository(session)
+    repository = ChatSessionRepository(session)
     return GetChatSessionUseCase(repository)
 
 
@@ -262,38 +242,38 @@ async def get_delete_face_use_case() -> DeleteFaceUseCase:
 # Document management dependencies
 async def get_upload_knowledge_use_case() -> UploadKnowledgeUseCase:
     """Get upload knowledge use case."""
-    if not rag_storage or not rag_store:
-        raise RuntimeError("RAG storage or RAG store not initialized")
+    if not rag_storage or not rag_service:
+        raise RuntimeError("RAG storage or RAG service not initialized")
     return UploadKnowledgeUseCase(
         file_storage=rag_storage,
-        rag_store=rag_store,
+        rag_store=rag_service,
     )
 
 
 async def get_list_knowledge_use_case() -> ListKnowledgeUseCase:
     """Get list knowledge use case."""
-    if not rag_store:
-        raise RuntimeError("RAG store not initialized")
+    if not rag_service:
+        raise RuntimeError("RAG service not initialized")
     return ListKnowledgeUseCase(
-        rag_store=rag_store,
+        rag_store=rag_service,
     )
 
 
 async def get_download_knowledge_use_case() -> DownloadKnowledgeUseCase:
     """Get download knowledge use case."""
-    if not rag_storage or not rag_store:
-        raise RuntimeError("RAG storage or RAG store not initialized")
+    if not rag_storage or not rag_service:
+        raise RuntimeError("RAG storage or RAG service not initialized")
     return DownloadKnowledgeUseCase(
         file_storage=rag_storage,
-        rag_store=rag_store,
+        rag_store=rag_service,
     )
 
 
 async def get_delete_knowledge_use_case() -> DeleteKnowledgeUseCase:
     """Get delete knowledge use case."""
-    if not rag_storage or not rag_store:
-        raise RuntimeError("RAG storage or RAG store not initialized")
+    if not rag_storage or not rag_service:
+        raise RuntimeError("RAG storage or RAG service not initialized")
     return DeleteKnowledgeUseCase(
         file_storage=rag_storage,
-        rag_store=rag_store,
+        rag_store=rag_service,
     )

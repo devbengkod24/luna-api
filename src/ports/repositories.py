@@ -3,40 +3,41 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from src.domain.entities.chat import ChatSessionEntity, MessageEntity
+from src.domain.entities.chat import ChatSession, Message
 
 
-class IChatRepository(ABC):
+class IChatSessionRepository(ABC):
     """Interface for chat repository."""
 
     @abstractmethod
-    async def create_session(self, uuid: str, title: str) -> ChatSessionEntity:
+    async def create(self, chat_session: ChatSession) -> ChatSession:
         """Create a new chat session."""
         ...
 
     @abstractmethod
-    async def get_session_by_uuid(self, uuid: str) -> Optional[ChatSessionEntity]:
+    async def get_session_by_id(self, id: str) -> Optional[ChatSession]:
         """Get chat session by UUID."""
         ...
 
     @abstractmethod
-    async def list_sessions(self) -> List[ChatSessionEntity]:
+    async def list_sessions(self) -> List[ChatSession]:
         """List all chat sessions."""
         ...
 
     @abstractmethod
-    async def add_message(
-        self,
-        session_id: int,
-        role: str,
-        content: str,
-        context: Optional[dict] = None,
-    ) -> MessageEntity:
-        """Add a message to a session."""
-        ...
-
-    @abstractmethod
-    async def update_session_title(self, uuid: str, title: str) -> bool:
+    async def update_session_title(self, id: str, title: str) -> bool:
         """Update session title."""
         ...
 
+class IMessageRepository(ABC):
+    """Interface for message repository."""
+
+    @abstractmethod
+    async def create(self, message: Message) -> Message:
+        """Create a new message."""
+        ...
+
+    @abstractmethod
+    async def get_message_by_id(self, id: str) -> Optional[Message]:
+        """Get message by UUID."""
+        ...

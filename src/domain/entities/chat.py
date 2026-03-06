@@ -3,18 +3,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 
-
-class UserRole(Enum):
-    """User role - represents the role of the user in the conversation."""
-
-    USER = "user"
-    ASSISTANT = "assistant"
-
-
-class Character(str, Enum):
-    RUSSELL = "russell"
-    FREDRICKSEN = "fredricksen"
+from src.shared.constants import Character
 
 
 @dataclass
@@ -38,10 +29,10 @@ class ChatSession:
 class Message:
     """Message - represents a message in a chat session."""
 
-    base64_audio: str | None = None
-    character: str
+    character: Character
     content: dict
-    context: UserContext | None = None
-    created_at: datetime
-    id: Optional[str] = None
     session_id: str
+    created_at: datetime
+    base64_audio: str | None = None
+    context: UserContext | None = None
+    id: Optional[str] = None

@@ -1,147 +1,108 @@
 """Database repository implementation."""
-from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.adapters.persistence.models import ChatSessionModel, MessageModel
-from src.domain.entities.chat import ChatSessionEntity, MessageEntity
-from src.ports.repositories import IChatRepository
+from src.adapters.persistence.models import ChatSessionModel, MessageModel, FileModel
+from src.domain.entities import ChatSession, Message, File
+from src.ports.repositories import IChatSessionRepository, IMessageRepository, IFileRepository
+from src.adapters.persistence.mappers import ChatSessionMapper, MessageMapper, FileMapper
 
 
-class ChatRepository(IChatRepository):    
+class ChatSessionRepository(IChatSessionRepository):    
     def __init__(self, session: AsyncSession):
         self.session = session
     
-    async def create(self, uuid: str, title: str) -> ChatSessionEntity:
-        session = ChatSessionModel(uuid=uuid, title=title)
-        self.session.add(session)
+    async def create(self, chat_session: ChatSession) -> ChatSession:
+        model = ChatSessionMapper.to_model(chat_session)
+        self.session.add(model)
         await self.session.flush()
-        await self.session.refresh(session)
+        await self.session.refresh(model)
         
-        return ChatSessionEntity(
-            id=session.id,
-            uuid=session.uuid,
-            title=session.title,
-            created_at=session.created_at,
-            updated_at=session.updated_at,
-            messages=[],
-        )
+        return ChatSessionMapper.to_entity(model)
     
-    async def get_session_by_uuid(self, uuid: str) -> Optional[ChatSessionEntity]:
-        """Get chat session by UUID with all messages.
-        
-        Args:
-            uuid: Session unique identifier
-            
-        Returns:
-            Optional[ChatSessionEntity]: Session entity or None if not found
-        """
-        stmt = select(ChatSession).where(ChatSession.uuid == uuid).options(selectinload(ChatSession.messages))
+    async def get_session_by_id(self, id: str) -> ChatSession | None:
+        stmt = select(ChatSessionModel).where(ChatSessionModel.id == id).options(selectinload(ChatSessionModel.messages))
         result = await self.session.execute(stmt)
-        session = result.scalar_one_or_none()
-        
-        if not session:
+        model = result.scalar_one_or_none()
+        if not model:
             return None
+        return ChatSessionMapper.to_entity(model)
         
-        messages = [
-            MessageEntity(
-                id=msg.id,
-                session_id=msg.session_id,
-                role=msg.role,
-                content=msg.content,
-                context=msg.context,
-                created_at=msg.created_at,
-            )
-            for msg in session.messages
-        ]
-        
-        return ChatSessionEntity(
-            id=session.id,
-            uuid=session.uuid,
-            title=session.title,
-            created_at=session.created_at,
-            updated_at=session.updated_at,
-            messages=messages,
-        )
-    
-    async def list_sessions(self) -> List[ChatSessionEntity]:
-        """List all chat sessions.
-        
-        Returns:
-            List[ChatSessionEntity]: List of session entities
-        """
-        stmt = select(ChatSession).order_by(ChatSession.updated_at.desc())
+    async def list_sessions(self) -> list[ChatSession]:
+        stmt = select(ChatSessionModel).order_by(ChatSessionModel.updated_at.desc())
         result = await self.session.execute(stmt)
-        sessions = result.scalars().all()
-        
-        return [
-            ChatSessionEntity(
-                id=session.id,
-                uuid=session.uuid,
-                title=session.title,
-                created_at=session.created_at,
-                updated_at=session.updated_at,
-                messages=[],
-            )
-            for session in sessions
-        ]
+        models = result.scalars().all()
+        return [ChatSessionMapper.to_entity(model) for model in models]
     
-    async def add_message(
-        self,
-        session_id: int,
-        role: str,
-        content: str,
-        context: Optional[dict] = None,
-    ) -> MessageEntity:
-        """Add a message to a session.
-        
-        Args:
-            session_id: Session database ID
-            role: Message role ('user' or 'assistant')
-            content: Message content
-            context: Optional context (emotion, name, etc.)
-            
-        Returns:
-            MessageEntity: Created message entity
-        """
-        message = Message(
-            session_id=session_id,
-            role=role,
-            content=content,
-            context=context,
-        )
-        self.session.add(message)
-        await self.session.flush()
-        await self.session.refresh(message)
-        
-        return MessageEntity(
-            id=message.id,
-            session_id=message.session_id,
-            role=message.role,
-            content=message.content,
-            context=message.context,
-            created_at=message.created_at,
-        )
-    
-    async def update_session_title(self, uuid: str, title: str) -> bool:
-        """Update session title.
-        
-        Args:
-            uuid: Session unique identifier
-            title: New title
-            
-        Returns:
-            bool: True if updated, False if not found
-        """
-        stmt = select(ChatSession).where(ChatSession.uuid == uuid)
+    async def update_session_title(self, id: str, title: str) -> bool:
+        stmt = select(ChatSessionModel).where(ChatSessionModel.id == id)
         result = await self.session.execute(stmt)
-        session = result.scalar_one_or_none()
-        
-        if not session:
+        model = result.scalar_one_or_none()
+        if not model:
             return False
-        
-        session.title = title
+        model.title = title
         await self.session.flush()
         return True
 
+class MessageRepository(IMessageRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
+    
+    async def create(self, message: Message) -> Message:
+        model = MessageMapper.to_model(message)
+        self.session.add(model)
+        await self.session.flush()
+        await self.session.refresh(model)
+        return MessageMapper.to_entity(model)
+    
+    async def get_message_by_id(self, id: str) -> Message | None:
+        stmt = select(MessageModel).where(MessageModel.id == id)
+        result = await self.session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if not model:
+            return None
+        return MessageMapper.to_entity(model)
+
+class FileRepository(IFileRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
+    
+    async def create(self, file: File) -> File:
+        model = FileMapper.to_model(file)
+        self.session.add(model)
+        await self.session.flush()
+        await self.session.refresh(model)
+        return FileMapper.to_entity(model)
+    
+    async def get_file_by_id(self, id: str) -> File | None:
+        stmt = select(FileModel).where(FileModel.id == id)
+        result = await self.session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if not model:
+            return None
+        return FileMapper.to_entity(model)
+
+    async def list_files(self) -> list[File]:
+        stmt = select(FileModel).order_by(FileModel.updated_at.desc())
+        result = await self.session.execute(stmt)
+        models = result.scalars().all()
+        return [FileMapper.to_entity(model) for model in models]
+    
+    async def update(self, file: File) -> File:
+        stmt = (
+            update(FileModel)  
+            .where(FileModel.id == file.id)
+            .values(
+                filename=file.filename,
+                size_bytes=file.size_bytes,
+                content_type=file.content_type,
+                storage_path=file.storage_path,
+                status=file.status,
+                tags=file.tags or [],
+                indexed_at=file.indexed_at,
+            )
+        )
+        await self.session.execute(stmt)
+        await self.session.commit()
+        return await self.get_file_by_id(file.id)

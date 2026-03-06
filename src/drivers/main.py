@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
 from src.drivers import dependencies
-from src.drivers.rest.routers import chat, face, knowledge
-from src.drivers.realtime.routers import vision
+from src.drivers.rest.routers import chat, face, file
+# from src.drivers.realtime.routers import vision
 
 
 @asynccontextmanager
@@ -26,8 +26,8 @@ async def lifespan(app: FastAPI):
         # await dependencies.db_connection.create_tables()
         
         # Initialize face store collection
-        await dependencies.initialize_face_store(run_seed=settings.seed_faces)
-        await dependencies.initialize_rag_store(run_seed=settings.seed_knowledge)
+        # await dependencies.initialize_face_store(run_seed=settings.seed_faces)
+        # await dependencies.initialize_rag_store(run_seed=settings.seed_knowledge)
         
         # Initialize vision use case for WebSocket
         # vision_use_case = dependencies.get_vision_use_case()
@@ -74,8 +74,8 @@ app.add_middleware(
 # Include routers
 app.include_router(chat.router, prefix=settings.api_v1_prefix)
 app.include_router(face.router, prefix=settings.api_v1_prefix)
-app.include_router(knowledge.router, prefix=settings.api_v1_prefix)
-app.include_router(vision.router, prefix=settings.api_v1_prefixa)
+app.include_router(file.router, prefix=settings.api_v1_prefix)
+# app.include_router(vision.router, prefix=settings.api_v1_prefix)
 
 @app.get("/")
 async def root():

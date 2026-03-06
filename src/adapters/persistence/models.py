@@ -1,6 +1,6 @@
 """SQLAlchemy database models."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import String, DateTime, Text, ForeignKey, BigInteger
 from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -36,4 +36,20 @@ class MessageModel(Base):
     
     session: Mapped["ChatSessionModel"] = relationship("ChatSessionModel", back_populates="messages")
     
+
+class FileModel(Base):
+    """File ORM model."""
+
+    __tablename__ = "files"
+
+    id: Mapped[uuid7] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="processing")
+    tags: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

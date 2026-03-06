@@ -28,11 +28,12 @@ class LangchainAgentService(IAgentService):
     def __init__(
         self,
         rag_service: Optional[IRAGService] = None,
+        **kwargs: Any,
     ):
         """Initialize agent adapter.
 
         Args:
-            rag_adapter: Optional RAG adapter for knowledge retrieval tool
+            rag_service: Optional RAG service for knowledge retrieval tool
         """
         self.rag_service = rag_service
 
@@ -98,11 +99,11 @@ class LangchainAgentService(IAgentService):
                 if not results:
                     return "No relevant information found in Udinus knowledge base."
 
-                # Format results
+                # Format results (RetrievalResultEntity)
                 formatted_results = []
                 for i, result in enumerate(results, 1):
-                    content = result.get("content", "")
-                    score = result.get("score", 0.0)
+                    content = result.content if hasattr(result, "content") else result.get("content", "")
+                    score = result.score if hasattr(result, "score") else result.get("score", 0.0)
                     formatted_results.append(
                         f"[{i}] {content}\n  Relevance: {score:.4f}"
                     )
