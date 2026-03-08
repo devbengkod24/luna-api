@@ -140,79 +140,49 @@ class Identity:
 
 @dataclass
 class TrackState:
-    """State for a single track (managed by TrackStateManager).
-    
-    Lifecycle: Created when track first appears, deleted when track dies.
-    """
-    
+    """Per-track state: identity cache, recognition retry control, emotion cache."""
+
     track_id: int
-    
-    # Identity binding (cached after successful recognition)
     identity: Optional[Identity] = None
-    
-    # Recognition retry control
     recognition_attempts: int = 0
     last_recognition_time: float = 0.0
-    last_recognition_quality: float = 0.0  # Face quality score at last attempt
-    
-    # Current frame data
+    last_recognition_quality: float = 0.0
     last_landmark: Optional[Landmark] = None
     last_embedding: Optional[List[float]] = None
-    
-    # Emotion tracking
     last_emotion: str = "neutral"
     last_emotion_confidence: float = 0.0
     last_emotion_frame: int = 0
-    
-    # Track lifecycle
     first_seen_frame: int = 0
     last_seen_frame: int = 0
     created_at: float = field(default_factory=time)
-    
+
     def should_retry_recognition(
         self,
         current_quality: float,
         min_retry_interval: float = 2.0,
         max_attempts: int = 5,
-        quality_improvement_threshold: float = 0.1,
+        quality_threshold: float = 0.1,
     ) -> bool:
-        """Check if recognition should be retried.
-        
-        Retry conditions:
-        1. No identity yet AND
-        2. (First attempt OR enough time passed OR quality improved significantly)
-        3. Max attempts not exceeded
-        """
-        if self.identity is not None:
+        if self.identity is not None or self.recognition_attempts >= max_attempts:
             return False
-        
-        if self.recognition_attempts >= max_attempts:
-            return False
-        
         if self.recognition_attempts == 0:
             return True
-        
         time_passed = time() - self.last_recognition_time
-        quality_improved = current_quality - self.last_recognition_quality >= quality_improvement_threshold
-        
+        quality_improved = current_quality - self.last_recognition_quality >= quality_threshold
         return time_passed >= min_retry_interval or quality_improved
-    
-    def record_recognition_attempt(self, quality: float):
-        """Record a recognition attempt."""
+
+    def record_recognition_attempt(self, quality: float) -> None:
         self.recognition_attempts += 1
         self.last_recognition_time = time()
         self.last_recognition_quality = quality
-    
-    def bind_identity(self, identity: Identity):
-        """Bind identity to this track."""
+
+    def bind_identity(self, identity: Identity) -> None:
         self.identity = identity
-    
+
     def should_detect_emotion(self, current_frame: int, interval: int = 5) -> bool:
-        """Check if emotion should be detected for this frame."""
         return current_frame - self.last_emotion_frame >= interval
-    
-    def update_emotion(self, emotion: str, confidence: float, frame_id: int):
-        """Update emotion for this track."""
+
+    def update_emotion(self, emotion: str, confidence: float, frame_id: int) -> None:
         self.last_emotion = emotion
         self.last_emotion_confidence = confidence
         self.last_emotion_frame = frame_id
@@ -289,23 +259,4 @@ class DetectedEmotion:
         return {
             "emotion": self.emotion,
             "confidence": self.confidence,
-        }
-
-@dataclass
-class TrackedFace:
-    """Tracked face with bounding box and track ID."""
-    
-    track_id: int
-    bbox: BoundingBox
-    confidence: float = 0.0
-    detection_index: Optional[int] = None
-    embedding: Optional[List[float]] = None
-    
-    def to_dict(self) -> dict:
-        """Convert to dictionary."""
-        return {
-            "track_id": self.track_id,
-            "bbox": self.bbox.to_list(),
-            "confidence": self.confidence,
-            "detection_index": self.detection_index,
         }

@@ -35,16 +35,12 @@ class RegisterFacesUseCase:
         self, face_input: RegisterFaceInput, skip_existing: bool
     ) -> FaceRegistrationResult:
         name, nim = face_input.name, face_input.nim
-
-        # Decode image
         try:
             image_bytes = base64.b64decode(face_input.image_base64, validate=True)
         except Exception:
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Invalid base64 image")
-
-        # Detect faces and extract embedding
         try:
-            detected = self.recognition.detect_faces(image_bytes, include_crops=False)
+            detected = self.recognition.detect_faces(image_bytes)
         except Exception as e:
             logger.error(f"Face detection error for {nim}: {e}", exc_info=True)
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Face detection failed")
@@ -60,8 +56,6 @@ class RegisterFacesUseCase:
         embedding = detected[0].embedding
         if not embedding:
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Failed to extract embedding")
-
-        # Check for existing NIM
         try:
             existing = await self.face_service.get_by_nim(nim)
         except Exception as e:
@@ -73,8 +67,6 @@ class RegisterFacesUseCase:
                 success=False, face_id=existing.id, name=existing.name, nim=existing.nim,
                 message=f"Face with NIM {nim} already registered."
             )
-
-        # Store face
         face_id = existing.id if existing else str(__import__("uuid").uuid4())
         face = FaceData(id=face_id, name=name, nim=nim, embedding=embedding)
         try:

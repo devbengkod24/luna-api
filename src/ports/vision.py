@@ -23,82 +23,40 @@ class IFaceRecognitionService(ABC):
     """
     
     @abstractmethod
-    def detect_faces(self, image_bytes: bytes, include_crops: bool = False) -> List[DetectedFace]:
-        """Detect all faces and extract embeddings (legacy method for registration).
-        
-        Args:
-            image_bytes: Raw image bytes (JPEG/PNG)
-            include_crops: Whether to include cropped face images
-            
-        Returns:
-            List[DetectedFace]: Detected faces with embeddings
-        """
+    def detect_faces(self, image_bytes: bytes) -> List[DetectedFace]:
+        """Detect faces and extract embeddings (for face registration)."""
         ...
     
     @abstractmethod
     def detect_faces_only(self, image_bytes: bytes) -> List[FaceDetection]:
-        """Detect faces WITHOUT extracting embeddings (for streaming pipeline).
-        
-        This is faster as it only runs SCRFD detection.
-        
-        Args:
-            image_bytes: Raw image bytes (JPEG/PNG)
-            
-        Returns:
-            List[FaceDetection]: Detected faces with bbox, confidence, landmark
-        """
+        """Detect faces without embeddings (streaming pipeline)."""
         ...
-    
+
+    @abstractmethod
+    def detect_faces_only_from_array(self, image: np.ndarray) -> List[FaceDetection]:
+        """Detect faces from BGR numpy array without embeddings."""
+        ...
+
     @abstractmethod
     def align_face(
-        self,
-        image: np.ndarray,
-        landmark: Landmark,
-        output_size: Tuple[int, int] = (112, 112),
+        self, image: np.ndarray, landmark: Landmark, output_size: Tuple[int, int] = (112, 112)
     ) -> Optional[np.ndarray]:
-        """Align face using landmarks (for recognition).
-        
-        Uses affine transformation based on 5-point landmarks.
-        
-        Args:
-            image: Full frame image (BGR numpy array)
-            landmark: 5-point facial landmarks
-            output_size: Output aligned face size (default 112x112 for ArcFace)
-            
-        Returns:
-            Aligned face image or None if alignment fails
-        """
+        """Align face using 5-point landmarks (ArcFace standard)."""
         ...
-    
+
     @abstractmethod
     def extract_embedding(self, aligned_face: np.ndarray) -> Optional[List[float]]:
-        """Extract embedding from aligned face image.
-        
-        Args:
-            aligned_face: Aligned face image (112x112 BGR)
-            
-        Returns:
-            512-dimensional embedding vector or None if extraction fails
-        """
+        """Extract 512-d normalized embedding from aligned face (112×112 BGR)."""
         ...
-    
+
     @abstractmethod
-    def crop_face(
-        self,
-        image: np.ndarray,
-        bbox: BoundingBox,
-        padding: float = 0.1,
-    ) -> Optional[np.ndarray]:
-        """Crop face region from image with padding.
-        
-        Args:
-            image: Full frame image (BGR numpy array)
-            bbox: Face bounding box
-            padding: Padding ratio (default 10%)
-            
-        Returns:
-            Cropped face image or None if cropping fails
-        """
+    def crop_face(self, image: np.ndarray, bbox: BoundingBox, padding: float = 0.1) -> Optional[np.ndarray]:
+        """Crop face region with padding."""
+        ...
+
+    @abstractmethod
+    def decode_from_bytes(self, image_bytes: bytes) -> Optional[np.ndarray]:
+        """Decode image bytes to BGR numpy array."""
         ...
 
 
@@ -111,17 +69,7 @@ class ITrackerService(ABC):
         detections: List[FaceDetection], 
         frame_id: int
     ) -> Tuple[List["TrackedFaceData"], List[int]]:
-        """Update tracker with new detections.
-        
-        Args:
-            detections: List of detected faces in current frame
-            frame_id: Current frame number
-            
-        Returns:
-            Tuple containing:
-            - List[TrackedFaceData]: Active tracked faces with associated detection data
-            - List[int]: Dead track IDs (tracks that have been lost)
-        """
+        """Update tracker with new detections."""
         ...
     
     @abstractmethod
@@ -141,26 +89,12 @@ class IEmotionDetectionService(ABC):
     def detect_emotion(
         self, face_crop_bytes: bytes,
     ) -> DetectedEmotion:
-        """Detect emotion from face region (bytes input).
-        
-        Args:
-            face_crop_bytes: Cropped face image bytes (JPEG/PNG)
-            
-        Returns:
-            DetectedEmotion with emotion label and confidence
-        """
+        """Detect emotion from face region (bytes input)."""
         ...
     
     @abstractmethod
     def detect_emotion_from_array(
         self, face_image: np.ndarray,
     ) -> DetectedEmotion:
-        """Detect emotion from face region (numpy array input).
-        
-        Args:
-            face_image: Face image as BGR numpy array
-            
-        Returns:
-            DetectedEmotion with emotion label and confidence
-        """
+        """Detect emotion from face region (numpy array input)."""
         ...

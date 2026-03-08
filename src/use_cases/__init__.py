@@ -21,6 +21,8 @@ from .face_use_case import (
     DeleteFaceUseCase,
 )
 
+from .vision_use_case import VisionUseCase
+
 __all__ = [
     "ResponseTextUseCase",
     "ResponseSpeechUseCase",
@@ -37,4 +39,5 @@ __all__ = [
     "ListFacesUseCase",
     "GetFaceUseCase",
     "DeleteFaceUseCase",
+    "VisionUseCase",
 ]

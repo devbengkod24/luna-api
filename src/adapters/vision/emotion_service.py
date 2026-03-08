@@ -1,103 +1,56 @@
-from transformers import AutoImageProcessor, AutoModelForImageClassification
-from PIL import Image
-import torch
-import numpy as np
-import io
+"""HuggingFace ViT emotion detection adapter."""
 
-from src.ports.vision import IEmotionDetectionService
+import io
+import logging
+
+import numpy as np
+import torch
+from PIL import Image
+from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+from src.config import settings
 from src.domain.entities.vision import DetectedEmotion
+from src.ports.vision import IEmotionDetectionService
+
+logger = logging.getLogger(__name__)
 
 
 class EmotionDetectionService(IEmotionDetectionService):
-    """Emotion detection adapter using HuggingFace ViT model."""
+    """Emotion detection using HuggingFace ViT image classification."""
 
-    def __init__(self, model_name: str = 'dima806/facial_emotions_image_detection', device: str = None):
-        """Initialize emotion detection model.
-        
-        Args:
-            model_name: HuggingFace model name
-            device: Device to run model on ('cuda', 'cpu', or None for auto)
-        """
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
-        
+    def __init__(self, model_name: str = None, device: str = None):
+        model_name = model_name or settings.emotion_model
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
         self.processor = AutoImageProcessor.from_pretrained(model_name, use_fast=True)
         self.model = AutoModelForImageClassification.from_pretrained(model_name)
         self.model.to(self.device)
         self.model.eval()
-
         self.id2label = self.model.config.id2label
-        
-        print(f"Emotion detection initialized: model={model_name}, device={self.device}")
 
-    def _id_to_label(self, class_id: int) -> str:
-        """Convert model class id to label string."""
-        return self.id2label[class_id]
-    
+        logger.info("EmotionDetection initialized: model=%s device=%s", model_name, self.device)
+
     def _predict(self, image: Image.Image) -> DetectedEmotion:
-        """Internal prediction method.
-        
-        Args:
-            image: PIL Image in RGB format
-            
-        Returns:
-            DetectedEmotion: Detected emotion with confidence
-        """
         try:
-            inputs = self.processor(images=image, return_tensors="pt")
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            
+            inputs = {k: v.to(self.device) for k, v in self.processor(images=image, return_tensors="pt").items()}
             with torch.no_grad():
-                outputs = self.model(**inputs)
-                probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
-            
-            predicted_class = int(torch.argmax(probs).item())
-            confidence = float(probs[predicted_class].item())
-            label = self._id_to_label(predicted_class)
-            
-            return DetectedEmotion(
-                emotion=label,
-                confidence=confidence
-            )
-            
+                probs = torch.nn.functional.softmax(self.model(**inputs).logits, dim=-1)[0]
+            cls = int(torch.argmax(probs).item())
+            return DetectedEmotion(emotion=self.id2label[cls], confidence=float(probs[cls].item()))
         except Exception as e:
-            print(f"Error detecting emotion: {e}")
+            logger.warning("EmotionDetection failed: %s", e)
             return DetectedEmotion(emotion="neutral", confidence=0.0)
 
     def detect_emotion(self, face_crop_bytes: bytes) -> DetectedEmotion:
-        """Detect emotion from face crop (bytes input).
-        
-        Args:
-            face_crop_bytes: Cropped face image bytes (JPEG/PNG)
-            
-        Returns:
-            DetectedEmotion: Detected emotion with confidence
-        """
         try:
-            image = Image.open(io.BytesIO(face_crop_bytes)).convert('RGB')
-            return self._predict(image)
-            
+            return self._predict(Image.open(io.BytesIO(face_crop_bytes)).convert("RGB"))
         except Exception as e:
-            print(f"Error detecting emotion from bytes: {e}")
+            logger.warning("detect_emotion (bytes) failed: %s", e)
             return DetectedEmotion(emotion="neutral", confidence=0.0)
-    
+
     def detect_emotion_from_array(self, face_image: np.ndarray) -> DetectedEmotion:
-        """Detect emotion from face region (numpy array input).
-        
-        Args:
-            face_image: Face image as BGR numpy array
-            
-        Returns:
-            DetectedEmotion: Detected emotion with confidence
-        """
         try:
-            # Convert BGR to RGB
-            rgb_image = face_image[:, :, ::-1]
-            
-            # Convert to PIL Image
-            image = Image.fromarray(rgb_image)
-            
-            return self._predict(image)
-            
+            return self._predict(Image.fromarray(face_image[:, :, ::-1]))  # BGR → RGB
         except Exception as e:
-            print(f"Error detecting emotion from array: {e}")
+            logger.warning("detect_emotion (array) failed: %s", e)
             return DetectedEmotion(emotion="neutral", confidence=0.0)

@@ -8,16 +8,12 @@ from src.config import settings
 from src.shared.exceptions import VSAException
 from src.drivers import dependencies
 from src.drivers.rest.routers import response, face, file as file_router, conversation
-# from src.drivers.realtime.routers import vision
+from src.drivers.realtime.routers import vision
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager.
-    
-    Handles startup and shutdown events.
-    """
-    # Startup
+    """Application lifespan manager."""
     print("Starting up...")
 
     try:
@@ -31,19 +27,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Fatal error during startup: {e}")
         raise
-        
+
     yield
-    
-    # Shutdown
+
     print("Shutting down...")
-    
+
     try:
-        # Close connections
         if dependencies.db_connection:
             await dependencies.db_connection.close()
     except Exception as e:
         print(f"Error during shutdown: {e}")
-    
+
     print("Shutdown complete")
 
 
@@ -54,7 +48,6 @@ def _vsa_exception_handler(request, exc: VSAException) -> JSONResponse:
     )
 
 
-# Create FastAPI app
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
@@ -62,8 +55,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_exception_handler(VSAException, _vsa_exception_handler)
-
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -71,13 +62,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Include routers
 app.include_router(response.router, prefix=settings.api_v1_prefix)
 app.include_router(conversation.router, prefix=settings.api_v1_prefix)
 app.include_router(file_router.router, prefix=settings.api_v1_prefix)
 app.include_router(face.router, prefix=settings.api_v1_prefix)
-# app.include_router(vision.router, prefix=settings.api_v1_prefix)
+app.include_router(vision.router, prefix=settings.api_v1_prefix)
 
 @app.get("/", include_in_schema=False)
 async def root():

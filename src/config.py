@@ -97,13 +97,26 @@ class Settings(BaseSettings):
     chat_max_prompt_length: int = 10000
     chat_max_audio_base64_size: int = 10 * 1024 * 1024  # 10MB
     
-    # Emotion Detection
-    enable_emotion_detection: bool = True
-     
+    # Emotion Detection (HuggingFace ViT)
+    enable_emotion_detection: bool = Field(default=True, alias="ENABLE_EMOTION_DETECTION")
+    emotion_model: str = Field(default="dima806/facial_emotions_image_detection", alias="EMOTION_MODEL")
+
+    # Vision / Tracker (ByteTrack)
+    tracker_max_age: int = Field(default=30, alias="TRACKER_MAX_AGE")
+    tracker_min_hits: int = Field(default=3, alias="TRACKER_MIN_HITS")
+    tracker_min_score: float = Field(default=0.4, alias="TRACKER_MIN_SCORE")
+
+    # Vision / Recognition pipeline
+    vision_emotion_interval: int = Field(default=5, alias="VISION_EMOTION_INTERVAL")
+    vision_recognition_retry_interval: float = Field(default=2.0, alias="VISION_RECOGNITION_RETRY_INTERVAL")
+    vision_max_recognition_attempts: int = Field(default=5, alias="VISION_MAX_RECOGNITION_ATTEMPTS")
+
     # Speech-to-Text (Faster Whisper)
+    enable_stt: bool = Field(default=True, alias="ENABLE_STT")
     whisper_model: str = "large"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
-    
+
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
+    enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
     voice_clone_dir: str = "storage/voice"  # Directory for future voice cloning (currently unused)
 
     # Rate limiting constants

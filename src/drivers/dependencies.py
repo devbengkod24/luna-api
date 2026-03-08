@@ -18,6 +18,8 @@ from src.adapters import (
     LlamaIndexRAGService,
     FaceStore,
     FaceRecognitionService,
+    EmotionDetectionService,
+    TrackerService,
 )
 from src.config import settings
 from src.use_cases import (
@@ -46,6 +48,8 @@ tts_service: MMSTTSService | None = None
 agent_service: LangchainAgentService | None = None
 face_service: FaceStore | None = None
 face_recognition: FaceRecognitionService | None = None
+emotion_service: EmotionDetectionService | None = None
+tracker_service: TrackerService | None = None
 
 
 def initialize_dependencies() -> None:
@@ -57,6 +61,7 @@ def initialize_dependencies() -> None:
         _init_speech()
         _init_agent()
         _init_face()
+        _init_vision()
     except Exception as e:
         print(f"Error initializing dependencies: {e}")
         raise
@@ -99,20 +104,24 @@ def _init_storage() -> None:
 def _init_speech() -> None:
     global stt_service, tts_service
 
-    stt_service = WhisperSTTService(
-        model_size=settings.whisper_model,
-        device=settings.gpu_device,
-        compute_type="int8",
-    )
-
-    try:
-        tts_service = MMSTTSService(
-            voice_clone_dir=settings.voice_clone_dir,
+    if settings.enable_stt:
+        stt_service = WhisperSTTService(
+            model_size=settings.whisper_model,
+            device=settings.gpu_device,
+            compute_type="int8",
         )
-        print("TTS adapter initialized successfully")
-    except Exception as e:
-        print(f"Warning: Could not initialize TTS adapter: {e}")
-        tts_service = None
+    else:
+        print("STT disabled (ENABLE_STT=False).")
+
+    if settings.enable_tts:
+        try:
+            tts_service = MMSTTSService(voice_clone_dir=settings.voice_clone_dir)
+            print("TTS adapter initialized successfully")
+        except Exception as e:
+            print(f"Warning: Could not initialize TTS adapter: {e}")
+            tts_service = None
+    else:
+        print("TTS disabled (ENABLE_TTS=False).")
 
 
 def _init_agent() -> None:
@@ -127,8 +136,6 @@ def _init_face() -> None:
     global face_service, face_recognition
     if not settings.enable_face_recognition:
         print("Face recognition disabled (ENABLE_FACE_RECOGNITION=False).")
-        face_service = None
-        face_recognition = None
         return
     try:
         face_service = FaceStore()
@@ -136,8 +143,27 @@ def _init_face() -> None:
         print("Face service initialized successfully")
     except Exception as e:
         print(f"Warning: Could not initialize face service: {e}")
-        face_service = None
-        face_recognition = None
+
+
+def _init_vision() -> None:
+    global emotion_service, tracker_service
+    if not settings.enable_face_recognition:
+        print("Vision services skipped (ENABLE_FACE_RECOGNITION=False).")
+        return
+    try:
+        tracker_service = TrackerService()
+        print("Tracker service initialized successfully")
+    except Exception as e:
+        print(f"Warning: Could not initialize tracker service: {e}")
+
+    if settings.enable_emotion_detection:
+        try:
+            emotion_service = EmotionDetectionService()
+            print("Emotion detection service initialized successfully")
+        except Exception as e:
+            print(f"Warning: Could not initialize emotion detection service: {e}")
+    else:
+        print("Emotion detection disabled (ENABLE_EMOTION_DETECTION=False).")
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -259,3 +285,17 @@ def get_delete_face_use_case() -> DeleteFaceUseCase:
     if not face_service:
         raise ServiceUnavailableException("Face service is not available.")
     return DeleteFaceUseCase(face_service)
+
+
+# --- Vision use case factory ---
+
+def get_vision_use_case():
+    from src.use_cases import VisionUseCase
+    if not face_recognition:
+        raise ServiceUnavailableException("Face recognition service is not available.")
+    return VisionUseCase(
+        face_recognition=face_recognition,
+        face_store=face_service,
+        tracker=tracker_service,
+        emotion_detection=emotion_service,
+    )

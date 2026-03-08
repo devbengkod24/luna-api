@@ -484,7 +484,7 @@
       }
 
       connectWebSocket() {
-        const wsUrl = 'ws://localhost:8000/v1/vision/stream';
+        const wsUrl = 'ws://localhost:8000/api/v1/vision/stream';
         console.log(`[WebSocket] Connecting to ${wsUrl}...`);
         this.ws = new WebSocket(wsUrl);
 
@@ -657,24 +657,14 @@
             return;
           }
 
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = reader.result.split(',')[1];
-            const payload = { 
-              event: 'webcam_frame', 
-              data: base64,
-              timestamp: now
-            };
-            
-            console.log(`[Capture] Sending frame #${this.stats.sentFrames + 1}, size: ${blob.size} bytes, base64 length: ${base64.length}`);
-            
-            this.ws.send(JSON.stringify(payload));
-            
-            this.stats.sentFrames++;
-            this.stats.sentTimestamps.push(now);
-            this.stats.lastSentTime = now;
-          };
-          reader.readAsDataURL(blob);
+          console.log(`[Capture] Sending binary frame #${this.stats.sentFrames + 1}, size: ${blob.size} bytes`);
+
+          // Send raw JPEG bytes as WebSocket binary frame
+          this.ws.send(blob);
+
+          this.stats.sentFrames++;
+          this.stats.sentTimestamps.push(now);
+          this.stats.lastSentTime = now;
         }, 'image/jpeg', 0.8);
       }
 
