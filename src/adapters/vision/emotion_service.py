@@ -4,11 +4,11 @@ import torch
 import numpy as np
 import io
 
-from src.ports.vision import IEmotionDetectionAdapter
+from src.ports.vision import IEmotionDetectionService
 from src.domain.entities.vision import DetectedEmotion
 
 
-class EmotionDetectionAdapter(IEmotionDetectionAdapter):
+class EmotionDetectionService(IEmotionDetectionService):
     """Emotion detection adapter using HuggingFace ViT model."""
 
     def __init__(self, model_name: str = 'dima806/facial_emotions_image_detection', device: str = None):

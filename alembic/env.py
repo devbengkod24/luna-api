@@ -5,15 +5,14 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# Import your models and settings
 from src.config import settings
-from src.adapters.postgres.models import Base
+from src.adapters.persistence.database import Base
+from src.adapters.persistence.models import *
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Override sqlalchemy.url from settings (use sync URL for migrations)
 config.set_main_option("sqlalchemy.url", settings.database_url_sync)
 
 # Interpret the config file for Python logging.
@@ -23,6 +22,8 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
+# from myapp import mymodel
+# target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

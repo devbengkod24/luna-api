@@ -11,7 +11,7 @@ from insightface.app import FaceAnalysis
 from skimage import transform as trans
 
 from src.config import settings
-from src.ports.vision import IFaceRecognitionAdapter
+from src.ports import IFaceRecognitionService
 from src.domain.entities.vision import (
     DetectedFace, 
     BoundingBox, 
@@ -52,7 +52,7 @@ def estimate_norm(landmark: np.ndarray, image_size: int = 112) -> np.ndarray:
     return M
 
 
-class FaceRecognitionAdapter(IFaceRecognitionAdapter):
+class FaceRecognitionService(IFaceRecognitionService):
     """Face recognition adapter using InsightFace with SCRFD + ArcFace.
     
     Supports two modes:

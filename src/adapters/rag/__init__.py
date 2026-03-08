@@ -1,7 +1,7 @@
-"""RAG adapters: retrieval + vector store (single RagService)."""
+"""RAG adapters: retrieval + vector store (single LlamaIndexRAGService)."""
 
-from src.adapters.rag.rag_service import RagService
+from src.adapters.rag.rag_service import LlamaIndexRAGService
 
 __all__ = [
-    "RagService",
+    "LlamaIndexRAGService",
 ]

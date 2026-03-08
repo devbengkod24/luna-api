@@ -2,10 +2,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config import settings
+from src.shared.exceptions import VSAException
 from src.drivers import dependencies
-from src.drivers.rest.routers import chat, face, file
+from src.drivers.rest.routers import response, face, file as file_router, conversation
 # from src.drivers.realtime.routers import vision
 
 
@@ -21,17 +23,8 @@ async def lifespan(app: FastAPI):
     try:
         # Initialize dependencies
         dependencies.initialize_dependencies()
-        
-        # Initialize database tables (optional - use alembic in production)
-        # await dependencies.db_connection.create_tables()
-        
-        # Initialize face store collection
-        # await dependencies.initialize_face_store(run_seed=settings.seed_faces)
-        # await dependencies.initialize_rag_store(run_seed=settings.seed_knowledge)
-        
-        # Initialize vision use case for WebSocket
-        # vision_use_case = dependencies.get_vision_use_case()
-        # vision.set_vision_use_case(vision_use_case)
+        await dependencies.initialize_rag_async()
+        await dependencies.initialize_face_async()
 
         print("Startup complete")
 
@@ -54,6 +47,13 @@ async def lifespan(app: FastAPI):
     print("Shutdown complete")
 
 
+def _vsa_exception_handler(request, exc: VSAException) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message},
+    )
+
+
 # Create FastAPI app
 app = FastAPI(
     title=settings.app_name,
@@ -61,6 +61,7 @@ app = FastAPI(
     debug=settings.debug,
     lifespan=lifespan,
 )
+app.add_exception_handler(VSAException, _vsa_exception_handler)
 
 # Add CORS middleware
 app.add_middleware(
@@ -72,16 +73,18 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(chat.router, prefix=settings.api_v1_prefix)
+app.include_router(response.router, prefix=settings.api_v1_prefix)
+app.include_router(conversation.router, prefix=settings.api_v1_prefix)
+app.include_router(file_router.router, prefix=settings.api_v1_prefix)
 app.include_router(face.router, prefix=settings.api_v1_prefix)
-app.include_router(file.router, prefix=settings.api_v1_prefix)
 # app.include_router(vision.router, prefix=settings.api_v1_prefix)
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 async def root():
     """Root endpoint."""
     return {
         "app": settings.app_name,
         "version": settings.app_version,
         "docs": "/docs",
+        "api": settings.api_v1_prefix,
     }

@@ -1,18 +1,17 @@
-"""Persistence adapters for chat sessions and messages."""
+"""Persistence adapters for conversations and messages."""
 
 from .database import DatabaseConnection
-from .repositories import ChatSessionRepository
+from .repositories import ConversationRepository
 from .repositories import MessageRepository
 from .repositories import FileRepository
-from .mappers import ChatSessionMapper, MessageMapper, FileMapper
+from .mappers import ConversationMapper, MessageMapper, FileMapper
 
 __all__ = [
     "DatabaseConnection",
-    "ChatSessionRepository",
+    "ConversationRepository",
     "MessageRepository",
     "FileRepository",
-    "ChatSessionMapper",
+    "ConversationMapper",
     "MessageMapper",
     "FileMapper",
 ]
-

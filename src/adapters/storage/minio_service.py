@@ -1,5 +1,4 @@
 """MinIO storage service implementation."""
-from typing import BinaryIO
 import io
 
 from minio import Minio
@@ -24,37 +23,28 @@ class MinIOStorageService(IStorageService):
         self._ensure_bucket()
 
     def _ensure_bucket(self):
-        """Ensure bucket exists."""
         try:
             if not self.client.bucket_exists(self.bucket_name):
                 self.client.make_bucket(self.bucket_name)
         except S3Error as e:
             raise InternalServerException(f"MinIO error: {str(e)}")
 
-    async def upload_file(
-        self, file_data: BinaryIO, filename: str, content_type: str
-    ) -> str:
-        """Upload file and return storage path."""
+    async def upload_file(self, file_content: bytes, filename: str, content_type: str) -> str:
+        """Upload file bytes and return storage path (filename)."""
         try:
-            # Read file data
-            file_bytes = file_data.read()
-            file_size = len(file_bytes)
-            
-            # Upload to MinIO
             self.client.put_object(
                 self.bucket_name,
                 filename,
-                io.BytesIO(file_bytes),
-                file_size,
+                io.BytesIO(file_content),
+                len(file_content),
                 content_type=content_type,
             )
-            
             return filename
         except S3Error as e:
             raise InternalServerException(f"Upload failed: {str(e)}")
 
     async def download_file(self, storage_path: str) -> bytes:
-        """Download file from storage."""
+        """Download file bytes from storage."""
         try:
             response = self.client.get_object(self.bucket_name, storage_path)
             data = response.read()
@@ -71,14 +61,3 @@ class MinIOStorageService(IStorageService):
             return True
         except S3Error:
             return False
-
-    async def get_file_url(self, storage_path: str, expires: int = 3600) -> str:
-        """Get pre-signed URL for file access."""
-        try:
-            url = self.client.presigned_get_object(
-                self.bucket_name, storage_path, expires=expires
-            )
-            return url
-        except S3Error as e:
-            raise InternalServerException(f"Get URL failed: {str(e)}")
-

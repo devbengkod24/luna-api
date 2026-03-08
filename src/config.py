@@ -50,20 +50,13 @@ class Settings(BaseSettings):
         )
 
     # Qdrant
-    qdrant_host: str
-    qdrant_grpc_port: int = 6334
-    qdrant_api_key: str
-    knowledge_collection_name: str = "knowledge_collection"
-    faces_collection_name: str = "faces_collection"
-
-    # Qdrant
     qdrant_host: str = Field(default="localhost", alias="QDRANT_HOST")
     qdrant_port: int = Field(default=6333, alias="QDRANT_PORT")
     qdrant_grpc_port: int = Field(default=6334, alias="QDRANT_GRPC_PORT")
     knowledge_collection_name: str = Field(
-        default="knowledge_collection", alias="QDRANT_COLLECTION_NAME"
+        default="knowledge_collection", alias="KNOWLEDGE_COLLECTION_NAME"
     )
-    faces_collection_name: str = Field(default="faces_collection", alias="FACES_COLLECTION_NAME")
+    faces_collection_name: str = Field(default="faces_collection", alias="FACE_COLLECTION_NAME")
 
     # MinIO
     minio_endpoint: str = Field(..., alias="MINIO_ENDPOINT")
@@ -74,11 +67,11 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_base_url: str = Field(
-        default="http://localhost:11434", alias="OLLAMA_BASE_URL"
+        default="http://ollama:11434", alias="OLLAMA_BASE_URL"
     )
     ollama_llm_model: str = Field(default="llama3.1:8b", alias="OLLAMA_LLM_MODEL")
     ollama_embedding_model: str = Field(
-        default="embeddinggemma:300m", alias="OLLAMA_EMBEDDING_MODEL"
+        default="embeddinggemma:latest", alias="OLLAMA_EMBEDDING_MODEL"
     )
     ollama_temperature: float = Field(default=0.4, alias="OLLAMA_TEMPERATURE")
     ollama_top_p: float = Field(default=0.9, alias="OLLAMA_TOP_P")
@@ -89,32 +82,24 @@ class Settings(BaseSettings):
     # Face Recognition (InsightFace)
     enable_face_recognition: bool = Field(default=True, alias="ENABLE_FACE_RECOGNITION")
     face_recognition_model: str = Field(default="buffalo_sc", alias="FACE_RECOGNITION_MODEL")
+    face_recognition_ctx_id: int = Field(default=-1, alias="FACE_RECOGNITION_CTX_ID")  # -1 CPU, 0+ GPU
     face_detection_size: int = Field(default=320, alias="FACE_DETECTION_SIZE") # Detection size (320 faster, 640 more accurate)
     face_similarity_threshold: float = Field(default=0.5, alias="FACE_SIMILARITY_THRESHOLD") # Cosine similarity threshold (0.4-0.6 recommended)
 
-    faces_dir: str = "storage/faces"
     face_max_batch_size: int = 100  # Max faces per request
     face_max_image_size: int = 10 * 1024 * 1024  # 10MB
-    faces_allowed_extensions: Set[str] = {'.jpg', '.jpeg', '.png'}
 
-    rag_dir: str = "storage/rag"
+    persist_dir: str = "storage/index"
     rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
-    rag_allowed_extensions: Set[str] = {'.pdf', '.txt', '.docx', '.doc'}
+    rag_allowed_extensions: Set[str] = {'.pdf', '.txt', '.docx', '.doc', '.md'}
 
     # Chat
     chat_max_prompt_length: int = 10000
     chat_max_audio_base64_size: int = 10 * 1024 * 1024  # 10MB
     
-    # ByteTrack Tracker
-    tracker_max_age: int = 60  # Max frames to keep track alive without detection
-    tracker_min_hits: int = 3  # Min detections before track is confirmed
-    tracker_min_score: float = 0.4  # Min confidence to initialize track
-    
     # Emotion Detection
     enable_emotion_detection: bool = True
-    seed_faces: bool = False
-    seed_knowledge: bool = False
-    
+     
     # Speech-to-Text (Faster Whisper)
     whisper_model: str = "large"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
     
@@ -123,11 +108,6 @@ class Settings(BaseSettings):
 
     # Rate limiting constants
     frame_timeout_seconds: float = 5.0
-
-    # Vision
-    emotion_detection_interval: int = 5  # Frames between emotion detection
-    recognition_retry_interval: float = 2.0  # Seconds between recognition retries
-    max_recognition_attempts: int = 5  # Max attempts per track
 
     # CORS
     cors_origins: str = "*"

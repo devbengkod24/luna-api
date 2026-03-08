@@ -1,18 +1,26 @@
 """Application constants."""
 from enum import Enum
 
-class UserRole(Enum):
-    """User role - represents the role of the user in the conversation."""
-
+class MessageType(Enum):
     USER = "user"
+    TOOL = "tool"
     ASSISTANT = "assistant"
 
 
-class Character(str, Enum):
-    RUSSELL = "russell"
-    FREDRICKSEN = "fredricksen"
+class Character(int, Enum):
+    RUSSELL = 0
+    FREDRICKSEN = 1
 
 class StorageType(Enum):
     """Storage type enumeration."""
-    RAG = "rag"  # RAG documents
-    FACES = "faces"  # Face images
+    RAG = "rag"
+    FACES = "faces"
+
+
+class FileStatus(str, Enum):
+    """File processing status."""
+    UPLOADING = "uploading"   # File sedang di-upload ke MinIO
+    UPLOADED = "uploaded"     # File sudah aman di MinIO
+    INDEXING = "indexing"     # Sedang chunking, embedding, dan simpan ke Qdrant
+    COMPLETED = "completed"   # Pengetahuan sudah aktif
+    FAILED = "failed"         # Terjadi kesalahan

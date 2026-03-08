@@ -1,22 +1,17 @@
-"""Agent adapter implementation using LangChain with Ollama.
-
-This adapter creates a LangChain agent that can use RAG as a tool
-to answer questions with knowledge retrieval.
-"""
-
 import math
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langchain.agents import create_agent
 from langchain_community.tools import DuckDuckGoSearchRun
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 from sympy import SympifyError, sympify
 
 from src.config import settings
-from src.domain.entities.chat import UserContext
+from src.domain.entities import UserContext
 from src.ports.services import IAgentService, IRAGService
+from src.shared.constants import MessageType
 
 import logging
 logger = logging.getLogger(__name__)
@@ -27,38 +22,32 @@ class LangchainAgentService(IAgentService):
 
     def __init__(
         self,
-        rag_service: Optional[IRAGService] = None,
-        **kwargs: Any,
+        rag_service: IRAGService,
     ):
-        """Initialize agent adapter.
-
-        Args:
-            rag_service: Optional RAG service for knowledge retrieval tool
-        """
         self.rag_service = rag_service
 
         self.llm = ChatOllama(
-            model=settings.llm_model,
-            base_url=f"http://{settings.ollama_host}:{settings.ollama_port}",
-            temperature=settings.llm_temperature,
+            model=settings.ollama_llm_model,
+            base_url=settings.ollama_base_url,
+            temperature=settings.ollama_temperature,
+            top_p=settings.ollama_top_p,
+            max_tokens=settings.ollama_max_tokens,
         )
 
         self.tools = self._create_tools()
         self.agent = None
 
     def _create_tools(self):
-        """Tools yang bisa dipakai agent."""
-
         @tool
         def search_web(query: str) -> str:
-            """Cari informasi UMUM dari internet (berita terkini, fakta dunia, info real-time).
+            """Search for GENERAL information from the internet (current news, world facts, real-time info).
 
-            Gunakan tool ini untuk:
-            - Berita dan informasi terkini (presiden, cuaca, harga, dll)
-            - Fakta umum yang TIDAK terkait dengan Universitas Dian Nuswantoro
-            - Informasi yang membutuhkan data real-time dari internet
+            Use this tool for:
+            - Current news and information (president, weather, prices, etc)
+            - General facts NOT related to Universitas Dian Nuswantoro
+            - Information requiring real-time data from the internet
 
-            JANGAN gunakan untuk pertanyaan tentang kampus Udinus.
+            DO NOT use for questions about Udinus campus.
             """
             try:
                 search_tool = DuckDuckGoSearchRun()
@@ -68,7 +57,7 @@ class LangchainAgentService(IAgentService):
 
         @tool
         def calculator(expression: str) -> str:
-            """Hitung ekspresi matematika aman ( +, -, *, /, **, sin, cos, etc )."""
+            """Calculate safe mathematical expressions (+, -, *, /, **, sin, cos, etc)."""
             try:
                 expr = sympify(expression, evaluate=True)
                 return f"{float(expr):.4f}"
@@ -79,19 +68,19 @@ class LangchainAgentService(IAgentService):
 
         @tool
         async def rag_search(query: str) -> str:
-            """Cari informasi INTERNAL dari knowledge base Universitas Dian Nuswantoro (Udinus).
+            """Search for INTERNAL information from Universitas Dian Nuswantoro (Udinus) knowledge base.
 
-            Gunakan tool ini untuk:
-            - Profil universitas, fakultas, program studi Udinus
-            - Himpunan Mahasiswa (HM), UKM, organisasi kampus
-            - Prosedur akademik, admisi, pendaftaran mahasiswa baru
-            - Informasi dosen, staff, struktur organisasi kampus
-            - Kalender akademik, jadwal kegiatan kampus
-            - Fasilitas kampus, lokasi, sarana prasarana
-            - Kurikulum, mata kuliah, silabus program studi
-            - Beasiswa, bantuan keuangan, program dukungan mahasiswa
+            Use this tool for:
+            - University profile, faculties, study programs of Udinus
+            - Student associations (HM), student organizations, campus organizations
+            - Academic procedures, admissions, new student registration
+            - Lecturer information, staff, campus organizational structure
+            - Academic calendar, campus event schedules
+            - Campus facilities, locations, infrastructure
+            - Curriculum, courses, study program syllabi
+            - Scholarships, financial aid, student support programs
 
-            JANGAN gunakan untuk informasi umum di luar konteks Udinus.
+            DO NOT use for general information outside Udinus context.
             """
             try:
                 results = await self.rag_service.retrieve(query, limit=3)
@@ -116,39 +105,35 @@ class LangchainAgentService(IAgentService):
 
     async def generate_stream(
         self,
+        user_input: str,
+        system_prompt: str,
         messages: List[Dict[str, str]],
         context: Optional[UserContext] = None,
-        system_prompt: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Generate streaming response from agent with tools.
-
-        Args:
-            messages: List of message dicts with 'role' and 'content'
-            context: Optional user context
-
-        Yields:
-            dict: Event dictionaries
-        """
         try:
-            user_messages = [msg for msg in messages if msg.get("role") == "user"]
-            if not user_messages:
-                yield {"type": "error", "content": "No user message found"}
-                yield {"type": "done", "finish_reason": "error"}
-                return
-
-            last_user_message = user_messages[-1]["content"]
-
             chat_history = []
-            for msg in messages[:-1]:
-                role = msg.get("role")
+            for msg in messages:
+                type = msg.get("type")
                 content = msg.get("content", "")
 
-                if role == "system":
+                if type == MessageType.SYSTEM:
                     chat_history.append(SystemMessage(content=content))
-                elif role == "user":
+                elif type == MessageType.USER:
                     chat_history.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    chat_history.append(AIMessage(content=content))
+                elif type == MessageType.ASSISTANT:
+                    tool_calls = msg.get("additional_kwargs", {}).get("tool_calls", [])
+                    chat_history.append(AIMessage(
+                        content=content,
+                        additional_kwargs={"tool_calls": tool_calls}
+                    ))
+                elif type == MessageType.TOOL:
+                    tool_call_id = msg.get("tool_call_id")
+                    name = msg.get("name", "")
+                    chat_history.append(ToolMessage(
+                        content=content,
+                        tool_call_id=tool_call_id,
+                        name=name
+                    ))
 
             self.agent = create_agent(
                 model=self.llm,
@@ -159,11 +144,13 @@ class LangchainAgentService(IAgentService):
             yield {"type": "log", "content": "Memproses dengan agent..."}
 
             config = {"configurable": {"thread_id": "agent-thread-1"}}
+            
+            messages_to_send = chat_history if chat_history else [HumanMessage(content=user_input)]
 
             async for event in self.agent.astream_events(
-                {"messages": chat_history + [HumanMessage(content=last_user_message)]},
+                {"messages": messages_to_send},
                 config=config,
-                version="v1",
+                version="v2",
             ):
                 kind = event["event"]
 
@@ -173,31 +160,48 @@ class LangchainAgentService(IAgentService):
                         yield {"type": "token", "content": chunk}
 
                 elif kind == "on_tool_start":
-                    data = event.get("data", {}) or {}
-                    tool_input = (
-                        data.get("args")
-                        or data.get("input")
-                        or data.get("inputs")
-                        or data
-                    )
+                    data = event["data"]
+                    tool_input = data["input"]
                     yield {
                         "type": "tool_call",
-                        "tool": event.get("name"),
+                        "tool": event["name"],
                         "input": tool_input,
                     }
 
                 elif kind == "on_tool_end":
+                    tool_msg = event["data"]["output"] # ToolMessage object
                     yield {
-                        "type": "tool_result",
-                        "tool": event["name"],
-                        "result": str(event["data"]["output"]),
+                        "type": "tool",
+                        "content": tool_msg.content,
+                        "tool_call_id": tool_msg.tool_call_id,
+                        "name": tool_msg.name,
                     }
 
-            yield {"type": "done", "finish_reason": "stop"}
+                elif kind == "on_chat_model_end":
+                    ai_msg = event["data"]["output"]  # AIMessage object
+                    msg_dict = {
+                        "type": "assistant",
+                        "content": ai_msg.content,
+                        "additional_kwargs": {
+                            "tool_calls": [
+                                {
+                                    "id": tc["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc["name"],
+                                        "arguments": tc["args"],
+                                    },
+                                }
+                                for tc in ai_msg.tool_calls
+                            ] if ai_msg.tool_calls else []
+                        },
+                        "response_metadata": ai_msg.response_metadata,
+                        "usage_metadata": getattr(ai_msg, "usage_metadata", {}),
+                    }
+                    yield msg_dict
         except Exception as e:
             error_message = str(e)
             yield {"type": "error", "content": error_message}
-            yield {"type": "done", "finish_reason": "error"}
             raise RuntimeError(f"Agent error: {error_message}")
 
     async def generate_title(self, title_prompt: str) -> str:

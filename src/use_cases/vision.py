@@ -5,11 +5,11 @@ import asyncio
 
 import numpy as np
 
+from src.ports.services import IFaceService
 from src.ports.vision import (
-    IFaceRecognitionAdapter,
-    IFaceVectorStore,
-    IEmotionDetectionAdapter,
-    ITrackerAdapter,
+    IFaceRecognitionService,
+    IEmotionDetectionService,
+    ITrackerService,
 )
 from src.domain.entities.vision import (
     VisionResult,
@@ -153,10 +153,10 @@ class VisionUseCase:
     
     def __init__(
         self,
-        face_recognition: IFaceRecognitionAdapter,
-        face_store: Optional[IFaceVectorStore] = None,
-        tracker: Optional[ITrackerAdapter] = None,
-        emotion_detection: Optional[IEmotionDetectionAdapter] = None,
+        face_recognition: IFaceRecognitionService,
+        face_store: Optional[IFaceService] = None,
+        tracker: Optional[ITrackerService] = None,
+        emotion_detection: Optional[IEmotionDetectionService] = None,
         similarity_threshold: float = 0.6,
         emotion_detection_interval: int = 5,
         recognition_retry_interval: float = 2.0,

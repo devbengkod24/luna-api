@@ -1,224 +1,113 @@
-"""File management REST router: CRUD + ingest to vector DB."""
+"""File REST router: CRUD + ingest to vector store."""
 
 import logging
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.params import Query
-from fastapi.responses import Response
 
 from src.drivers import dependencies
-from src.drivers.rest.schemas.file import (
-    FileDeleteResponse,
-    FileIngestResponse,
-    FileListItem,
-    FileUploadResponse,
+from src.drivers.rest.schemas.file_schemas import (
+    FileResponse,
+    IngestRequest,
+    IngestResponse,
     UploadFileRequest,
 )
-from src.use_cases.knowledge import (
-    DeleteKnowledgeUseCase,
-    DownloadKnowledgeUseCase,
-    ListKnowledgeUseCase,
-    UploadKnowledgeUseCase,
+from src.use_cases.file_use_case import (
+    DeleteFileUseCase,
+    IngestFileUseCase,
+    ListFilesUseCase,
+    UploadFileUseCase,
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/files", tags=["files"])
+router = APIRouter(prefix="/file", tags=["file"])
 
 
-# ----- Create (upload) -----
-
-
-@router.post("/upload", response_model=FileUploadResponse)
-async def upload_file(
-    file: UploadFile = File(...),
-    use_case: UploadKnowledgeUseCase = Depends(dependencies.get_upload_knowledge_use_case),
-):
-    """Upload a file to storage and index to vector DB.
-    Supported formats: PDF, TXT, DOCX, DOC. Max size: 50MB.
-    """
-    try:
-        file_content = await file.read()
-    except Exception as e:
-        logger.error("Error reading file: %s", e, exc_info=True)
-        raise HTTPException(status_code=400, detail="Error reading file") from e
-
-    try:
-        req = UploadFileRequest(
-            filename=file.filename or "document",
-            file_content=file_content,
-        )
-    except Exception as e:
-        logger.warning("Validation failed: %s", e)
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-    logger.info(
-        "Uploading file: %s, size=%s bytes",
-        req.filename,
-        len(req.file_content),
+def _to_response(file) -> FileResponse:
+    return FileResponse(
+        id=file.id or "",
+        filename=file.filename,
+        size_bytes=file.size_bytes,
+        content_type=file.content_type,
+        storage_path=file.storage_path,
+        status=file.status,
+        tags=file.tags or [],
+        indexed_at=file.indexed_at.isoformat() if file.indexed_at else None,
+        created_at=file.created_at.isoformat() if file.created_at else "",
+        updated_at=file.updated_at.isoformat() if file.updated_at else "",
     )
 
-    try:
-        result = await use_case.execute(
-            file_content=req.file_content,
-            filename=req.filename,
-        )
-        if not result.get("success"):
-            raise HTTPException(status_code=400, detail=result.get("message", "Upload failed"))
-        return FileUploadResponse(
-            success=True,
-            message=result.get("message", ""),
-            filename=result.get("filename"),
-            num_chunks=result.get("num_chunks"),
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error uploading file: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error while uploading file") from e
 
-
-# ----- Ingest (store to vector DB) -----
-
-
-@router.post("/ingest", response_model=FileIngestResponse, status_code=202)
-async def ingest_file(
+@router.post("", response_model=FileResponse, status_code=201)
+async def upload_file(
     file: UploadFile = File(...),
-    use_case: UploadKnowledgeUseCase = Depends(dependencies.get_upload_knowledge_use_case),
+    use_case: UploadFileUseCase = Depends(dependencies.get_upload_file_use_case),
 ):
-    """Ingest a file into vector DB (save to storage + index). Same flow as upload."""
+    """Upload file to MinIO and record metadata. File is NOT yet vectorized."""
     try:
         file_content = await file.read()
     except Exception as e:
-        logger.error("Error reading file for ingest: %s", e, exc_info=True)
         raise HTTPException(status_code=400, detail="Error reading file") from e
 
     try:
-        req = UploadFileRequest(
-            filename=file.filename or "document",
-            file_content=file_content,
-        )
+        req = UploadFileRequest(filename=file.filename or "document", file_content=file_content)
     except Exception as e:
-        logger.warning("Validation failed: %s", e)
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    logger.info("Ingesting file to vector DB: %s", req.filename)
+    logger.info("Uploading file: %s (%d bytes)", req.filename, len(req.file_content))
 
     try:
-        result = await use_case.execute(
-            file_content=req.file_content,
-            filename=req.filename,
-        )
-        if not result.get("success"):
-            raise HTTPException(status_code=400, detail=result.get("message", "Ingest failed"))
-        return FileIngestResponse(
-            success=True,
-            message=result.get("message", "File ingested to vector DB."),
-            filename=result.get("filename"),
-            num_chunks=result.get("num_chunks"),
-            status="indexed",
-        )
-    except HTTPException:
-        raise
+        result = await use_case.execute(file_content=req.file_content, filename=req.filename)
+        return _to_response(result)
     except Exception as e:
-        logger.error("Error ingesting file: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error while ingesting file") from e
+        logger.error("Error uploading file: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
-# ----- Read (list) -----
-
-
-@router.get("/list", response_model=list[FileListItem])
+@router.get("", response_model=list[FileResponse])
 async def list_files(
-    limit: int | None = Query(None, ge=1, le=1000, description="Max items to return"),
-    offset: int | None = Query(0, ge=0, description="Number of items to skip"),
-    use_case: ListKnowledgeUseCase = Depends(dependencies.get_list_knowledge_use_case),
+    use_case: ListFilesUseCase = Depends(dependencies.get_list_files_use_case),
 ):
-    """List all files in RAG (storage + vector store)."""
+    """List all files."""
     try:
-        items = await use_case.execute()
-        total = len(items)
-        if limit is not None:
-            items = items[offset : offset + limit]
-        else:
-            items = items[offset:]
-
-        out = []
-        for doc in items:
-            file_name = doc.get("file_name", "")
-            out.append(
-                FileListItem(
-                    document_id=doc.get("document_id", ""),
-                    file_name=file_name,
-                    file_type=doc.get("file_type", ""),
-                    file_size=doc.get("file_size", 0),
-                    creation_date=doc.get("creation_date", ""),
-                    download_url=f"/files/download/{quote(file_name, safe='')}",
-                )
-            )
-        logger.info("Listed %s file(s) (offset=%s, limit=%s, total=%s)", len(out), offset, limit, total)
-        return out
+        files = await use_case.execute()
+        return [_to_response(f) for f in files]
     except Exception as e:
         logger.error("Error listing files: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {e}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
-# ----- Read (download) -----
-
-
-@router.get("/download/{filename:path}")
-async def download_file(
-    filename: str,
-    use_case: DownloadKnowledgeUseCase = Depends(dependencies.get_download_knowledge_use_case),
-):
-    """Download a file by filename."""
-    if not filename or not filename.strip():
-        raise HTTPException(status_code=400, detail="Filename is required")
-
-    logger.info("Downloading file: %s", filename)
-
-    try:
-        result = await use_case.execute(filename)
-        if not result.get("success"):
-            raise HTTPException(status_code=404, detail=result.get("message", "Not found"))
-        return Response(
-            content=result["file_content"],
-            media_type=result.get("content_type", "application/octet-stream"),
-            headers={
-                "Content-Disposition": f'attachment; filename="{result.get("filename", filename)}"'
-            },
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error downloading file: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error while downloading file") from e
-
-
-# ----- Delete -----
-
-
-@router.delete("/{document_id}", response_model=FileDeleteResponse)
+@router.delete("/{file_id}", status_code=204)
 async def delete_file(
-    document_id: str,
-    use_case: DeleteKnowledgeUseCase = Depends(dependencies.get_delete_knowledge_use_case),
+    file_id: str,
+    use_case: DeleteFileUseCase = Depends(dependencies.get_delete_file_use_case),
 ):
-    """Delete a file from storage and vector DB by document_id."""
-    if not document_id or not document_id.strip():
-        raise HTTPException(status_code=400, detail="Document ID is required")
-
-    logger.info("Deleting file: %s", document_id)
-
+    """Delete file from MinIO, vector store, and DB."""
     try:
-        result = await use_case.execute(document_id)
-        if not result.get("success"):
-            raise HTTPException(status_code=404, detail=result.get("message", "Not found"))
-        return FileDeleteResponse(
-            success=True,
-            message=result.get("message", ""),
-        )
+        deleted = await use_case.execute(file_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="File not found")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Error deleting file: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error while deleting file") from e
+        logger.error("Error deleting file %s: %s", file_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+
+
+@router.post("/ingest", response_model=IngestResponse, status_code=202)
+async def ingest_files(
+    request: IngestRequest,
+    use_case: IngestFileUseCase = Depends(dependencies.get_ingest_file_use_case),
+):
+    """Vectorize file(s) into Qdrant.
+    
+    - If file_id is provided: vectorize that specific file.
+    - If file_id is omitted: vectorize all non-INDEXING files.
+    - tags: used as metadata for context filtering (optional).
+    """
+    logger.info("Ingest request: file_id=%s, tags=%s", request.file_id, request.tags)
+    try:
+        result = await use_case.execute(file_id=request.file_id, tags=request.tags)
+        return IngestResponse(**result)
+    except Exception as e:
+        logger.error("Error ingesting files: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from e

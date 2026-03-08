@@ -87,6 +87,12 @@ class FaceResponse(BaseModel):
     name: str
     nim: str
 
+
+class ListFacesResponse(BaseModel):
+    """Response model for paginated face list (cursor-based)."""
+    items: list[FaceResponse]
+    next_cursor: str | None = None
+
 class SingleRegisterFaceResult(BaseModel):
     """Result for a single face registration attempt."""
     success: bool

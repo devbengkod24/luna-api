@@ -1,12 +1,11 @@
 """Vision port interfaces."""
 from abc import ABC, abstractmethod
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple
 
 import numpy as np
 
 from src.domain.entities.vision import (
     DetectedFace,
-    FaceData,
     DetectedEmotion,
     FaceDetection,
     BoundingBox,
@@ -15,7 +14,7 @@ from src.domain.entities.vision import (
 )
 
 
-class IFaceRecognitionAdapter(ABC):
+class IFaceRecognitionService(ABC):
     """Interface for face recognition adapter using InsightFace.
     
     Supports two modes:
@@ -103,75 +102,7 @@ class IFaceRecognitionAdapter(ABC):
         ...
 
 
-class IFaceVectorStore(ABC):
-    """Interface for face vector storage (Qdrant)."""
-    
-    @abstractmethod
-    async def initialize(self) -> None:
-        """Initialize the vector store collection."""
-        ...
-    
-    @abstractmethod
-    async def add_face(self, face_data: FaceData) -> str:
-        """Add a face to the vector store.
-        
-        Args:
-            face_data: Face data with embedding
-            
-        Returns:
-            str: Face ID
-        """
-        ...
-    
-    @abstractmethod
-    async def search_face(
-        self, embedding: List[float], threshold: float = 0.6
-    ) -> Optional[Tuple[FaceData, float]]:
-        """Search for a matching face in the vector store.
-        
-        Args:
-            embedding: Face embedding vector
-            threshold: Minimum similarity threshold
-            
-        Returns:
-            Optional[Tuple[FaceData, float]]: Matching face data and score, or None
-        """
-        ...
-    
-    @abstractmethod
-    async def get_all_faces(self) -> List[FaceData]:
-        """Get all registered faces.
-        
-        Returns:
-            List[FaceData]: List of all face data (without embeddings)
-        """
-        ...
-    
-    @abstractmethod
-    async def delete_face(self, face_id: str) -> bool:
-        """Delete a face from the vector store.
-        
-        Args:
-            face_id: Face ID to delete
-            
-        Returns:
-            bool: True if deleted successfully
-        """
-        ...
-    
-    @abstractmethod
-    async def get_face_by_nim(self, nim: str) -> Optional[FaceData]:
-        """Get face data by NIM.
-        
-        Args:
-            nim: Student NIM
-            
-        Returns:
-            Optional[FaceData]: Face data if found
-        """
-        ...
-
-class ITrackerAdapter(ABC):
+class ITrackerService(ABC):
     """Interface for object/person tracking across frames."""
     
     @abstractmethod
@@ -203,7 +134,7 @@ class ITrackerAdapter(ABC):
         """Get list of currently active track IDs."""
         ...
 
-class IEmotionDetectionAdapter(ABC):
+class IEmotionDetectionService(ABC):
     """Interface for emotion detection."""
     
     @abstractmethod

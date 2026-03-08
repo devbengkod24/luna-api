@@ -102,15 +102,15 @@ services:
       # Qdrant
       QDRANT_HOST: qdrant
       QDRANT_GRPC_PORT: 6334
-      QDRANT_API_KEY: ${QDRANT_API_KEY}
-      QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME}
+      KNOWLEDGE_COLLECTION_NAME: ${KNOWLEDGE_COLLECTION_NAME}
+      FACE_COLLECTION_NAME: ${FACE_COLLECTION_NAME}
 
       # Ollama
       OLLAMA_HOST: ollama
       OLLAMA_PORT: 11434
 
-      # Minio
-      MINIO_ENDPOINT: minio
+      # MinIO
+      MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET_NAME: vsa-files
@@ -123,12 +123,12 @@ services:
       FACE_SIMILARITY_THRESHOLD: ${FACE_SIMILARITY_THRESHOLD}
 
     volumes:
-      - ./src:/app/src
+      # - ./src:/app/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./storage:/app/storage
       - ai_cache:/root/.cache
-      # - .:/app
+      - .:/app
 
     depends_on:
       postgres:

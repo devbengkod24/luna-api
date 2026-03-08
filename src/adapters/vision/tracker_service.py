@@ -9,10 +9,10 @@ from src.domain.entities.vision import (
     BoundingBox,
     Landmark,
 )
-from src.ports.vision import ITrackerAdapter
+from src.ports.vision import ITrackerService
 
 
-class TrackerAdapter(ITrackerAdapter):
+class TrackerService(ITrackerService):
     """Adapter for ByteTrack tracker.
     
     Manages track lifecycle and associates detection data (landmarks) to tracks.
