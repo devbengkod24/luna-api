@@ -7,7 +7,7 @@ from fastapi.params import Query
 
 from src.domain.entities.face import RegisterFaceInput
 from src.drivers import dependencies
-from src.drivers.rest.schemas.face import (
+from src.drivers.rest.schemas import (
     FaceResponse,
     ListFacesResponse,
     RegisterFaceRequest,

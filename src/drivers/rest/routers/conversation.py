@@ -110,7 +110,7 @@ async def list_messages(
                 MessageResponse(
                     id=msg.id or "",
                     character=msg.character.value,
-                    content=asdict(msg.content) if not isinstance(msg.content, dict) else msg.content,
+                    body=asdict(msg.body) if not isinstance(msg.body, dict) else msg.body,
                     context=UserContextSchema(
                         emotion=msg.context.emotion,
                         name=msg.context.name,

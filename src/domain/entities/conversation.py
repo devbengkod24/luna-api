@@ -19,8 +19,8 @@ class Conversation:
 @dataclass
 class Message:
     character: Character
-    content: Union[UserMessage, ToolMessage, AIMessage]
+    body: Union[UserMessage, ToolMessage, AIMessage]
     conversation_id: str
-    created_at: datetime
     context: UserContext | None = None
+    created_at: datetime | None = None
     id: Optional[str] = None

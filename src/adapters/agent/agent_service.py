@@ -116,9 +116,7 @@ class LangchainAgentService(IAgentService):
                 type = msg.get("type")
                 content = msg.get("content", "")
 
-                if type == MessageType.SYSTEM:
-                    chat_history.append(SystemMessage(content=content))
-                elif type == MessageType.USER:
+                if type == MessageType.USER:
                     chat_history.append(HumanMessage(content=content))
                 elif type == MessageType.ASSISTANT:
                     tool_calls = msg.get("additional_kwargs", {}).get("tool_calls", [])

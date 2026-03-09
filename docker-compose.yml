@@ -123,7 +123,7 @@ services:
       MINIO_SECURE: "false"
 
       # GPU (-1 CPU, 0+ GPU)
-      GPU_DEVICE: ${GPU_DEVICE:--1}
+      GPU_DEVICE: -1
 
       # Face Recognition (InsightFace)
       ENABLE_FACE_RECOGNITION: ${ENABLE_FACE_RECOGNITION:-true}

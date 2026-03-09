@@ -132,14 +132,14 @@ class ResponseTextUseCase:
             Message(
                 conversation_id=conversation.id,
                 character=character,
-                content=UserMessage(content=user_input),
+                body=UserMessage(content=user_input),
                 context=context if context else None,
             )
         )
 
         yield {"type": "log", "content": "Menganalisis konteks..."}
         session_messages = await self.message_repo.get_by_conversation_id(conversation.id)
-        messages_for_agent = [_message_content_to_agent_dict(m.content) for m in session_messages]
+        messages_for_agent = [_message_content_to_agent_dict(m.body) for m in session_messages]
         full_response = ""
         try:
             async for event in self.agent_service.generate_stream(
@@ -175,7 +175,7 @@ class ResponseTextUseCase:
                         Message(
                             conversation_id=conversation.id,
                             character=character,
-                            content=AIMessage(
+                            body=AIMessage(
                                 content=event.get("content", ""),
                                 additional_kwargs=tool_calls,
                                 response_metadata=ResponseMetadata(
@@ -196,7 +196,7 @@ class ResponseTextUseCase:
                         Message(
                             conversation_id=conversation.id,
                             character=character,
-                            content=ToolMessage(
+                            body=ToolMessage(
                                 content=event.get("content", ""),
                                 tool_call_id=event.get("tool_call_id", ""),
                                 name=event.get("name", ""),
@@ -263,13 +263,13 @@ class ResponseSpeechUseCase:
             Message(
                 conversation_id=conversation.id,
                 character=character,
-                content=UserMessage(content=transcript),
+                body=UserMessage(content=transcript),
                 context=context if context else None,
             )
         )
 
         session_messages = await self.message_repo.get_by_conversation_id(conversation.id)
-        messages_for_agent = [_message_content_to_agent_dict(m.content) for m in session_messages]
+        messages_for_agent = [_message_content_to_agent_dict(m.body) for m in session_messages]
         full_response = ""
         try:
             async for event in self.agent_service.generate_stream(
@@ -305,7 +305,7 @@ class ResponseSpeechUseCase:
                         Message(
                             conversation_id=conversation.id,
                             character=character,
-                            content=AIMessage(
+                            body=AIMessage(
                                 content=event.get("content", ""),
                                 additional_kwargs=tool_calls,
                                 response_metadata=ResponseMetadata(
@@ -326,7 +326,7 @@ class ResponseSpeechUseCase:
                         Message(
                             conversation_id=conversation.id,
                             character=character,
-                            content=ToolMessage(
+                            body=ToolMessage(
                                 content=event.get("content", ""),
                                 tool_call_id=event.get("tool_call_id", ""),
                                 name=event.get("name", ""),

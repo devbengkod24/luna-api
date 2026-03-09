@@ -28,8 +28,8 @@ class UpdateConversationRequest(BaseModel):
 class MessageResponse(BaseModel):
     """Single message in a list."""
     id: str
-    character: str
-    content: dict = Field(default_factory=dict, description="Message content (type, content, etc.)")
+    character: int
+    body: dict = Field(default_factory=dict, description="Message body (type, content, etc.)")
     context: UserContextSchema | None = None
     created_at: str
 

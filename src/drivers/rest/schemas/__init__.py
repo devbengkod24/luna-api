@@ -12,6 +12,14 @@ from .conversation_schemas import (
     MessageResponse,
     ListMessagesPaginatedResponse,
 )
+from .face_schema import (
+    RegisterFaceItem,
+    RegisterFaceRequest,
+    RegisterFacesResponse,
+    SingleRegisterFaceResult,
+    FaceResponse,
+    ListFacesResponse,
+)
 
 __all__ = [
     "ResponseTextRequest",
@@ -22,4 +30,10 @@ __all__ = [
     "UpdateConversationRequest",
     "MessageResponse",
     "ListMessagesPaginatedResponse",
+    "RegisterFaceItem",
+    "RegisterFaceRequest",
+    "RegisterFacesResponse",
+    "SingleRegisterFaceResult",
+    "FaceResponse",
+    "ListFacesResponse",
 ]

@@ -137,14 +137,9 @@ Isi data awal dari folder `storage/` (wajah dari `storage/faces/`, dokumen RAG d
 
 ```bash
 # Di container
-docker compose run --rm fastapi python -m src.seed all    # face + rag
-docker compose run --rm fastapi python -m src.seed face    # wajah saja
-docker compose run --rm fastapi python -m src.seed rag     # RAG saja
-
-# Lokal (setelah dependencies & env siap)
-python -m src.seed all
-python -m src.seed face
-python -m src.seed rag
+docker compose exec fastapi python -m src.seed all    # face + rag
+docker compose exec fastapi python -m src.seed face    # wajah saja
+docker compose exec fastapi python -m src.seed rag     # RAG saja
 ```
 
 Format nama file wajah: `Nama_Nama__NIM.jpg` (nama dan NIM dipakai untuk metadata).

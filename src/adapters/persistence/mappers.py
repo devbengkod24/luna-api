@@ -48,60 +48,59 @@ class ConversationMapper:
         return ConversationModel(**kwargs)
 
 
-def _content_to_dict(content: UserMessage | ToolMessage | AIMessage) -> dict:
+def _body_to_dict(body: UserMessage | ToolMessage | AIMessage) -> dict:
     """Serialize message content (domain) to JSONB dict."""
-    if isinstance(content, UserMessage):
-        return {"type": MessageType.USER.value, "content": content.content}
-    elif isinstance(content, ToolMessage):
+    if isinstance(body, UserMessage):
+        return {"type": MessageType.USER.value, "content": body.content}
+    elif isinstance(body, ToolMessage):
         return {
             "type": MessageType.TOOL.value,
-            "content": content.content,
-            "tool_call_id": content.tool_call_id,
-            "name": content.name,
+            "content": body.content,
+            "tool_call_id": body.tool_call_id,
+            "name": body.name,
         }
-    elif isinstance(content, AIMessage):
+    elif isinstance(body, AIMessage):
         tool_calls = [
             {
                 "id": tc.id,
                 "type": tc.type,
                 "function": {"name": tc.function.name, "arguments": tc.function.arguments},
             }
-            for tc in (content.additional_kwargs or [])
+            for tc in (body.additional_kwargs or [])
         ]
-        rm = content.response_metadata
+        rm = body.response_metadata
         return {
             "type": MessageType.ASSISTANT.value,
-            "content": content.content,
+            "content": body.content,
             "additional_kwargs": {"tool_calls": tool_calls},
             "response_metadata": {
                 "model": rm.model,
-                "created_at": rm.created_at.isoformat() if rm.created_at else "",
                 "done_reason": rm.done_reason,
             },
             "usage_metadata": {
-                "input_tokens": content.usage_metadata.input_tokens,
-                "output_tokens": content.usage_metadata.output_tokens,
-                "total_tokens": content.usage_metadata.total_tokens,
+                "input_tokens": body.usage_metadata.input_tokens,
+                "output_tokens": body.usage_metadata.output_tokens,
+                "total_tokens": body.usage_metadata.total_tokens,
             },
         }
     return {"type": MessageType.USER.value, "content": ""}
 
 
-def _dict_to_content(d: dict) -> UserMessage | ToolMessage | AIMessage:
+def _dict_to_body(d: dict) -> UserMessage | ToolMessage | AIMessage:
     """Deserialize JSONB dict to domain message content."""
     if not d:
         return UserMessage(content="")
     msg_type = (d.get("type") or MessageType.USER.value).lower()
-    content = d.get("content", "")
+    body = d.get("body", "")
 
     if msg_type == MessageType.USER.value:
-        return UserMessage(content=content)
+        return UserMessage(content=body)
     elif msg_type == MessageType.TOOL.value:
-        return ToolMessage(content=content, tool_call_id=d.get("tool_call_id", ""), name=d.get("name", ""))
+        return ToolMessage(content=body, tool_call_id=d.get("tool_call_id", ""), name=d.get("name", ""))
     elif msg_type == MessageType.ASSISTANT.value:
         return _dict_to_ai_message(d)
     else:
-        return UserMessage(content=content)
+        return UserMessage(content=body)
 
 
 def _dict_to_ai_message(d: dict) -> AIMessage:
@@ -147,19 +146,13 @@ class MessageMapper:
                 name=model.context.get("name"),
                 nim=model.context.get("nim"),
             )
-        content = model.content if isinstance(model.content, dict) else {}
-        char = model.character
-        if isinstance(char, str):
-            try:
-                char = Character(char)
-            except ValueError:
-                char = Character.RUSSELL
+        body = model.body if isinstance(model.body, dict) else {}
         return Message(
             id=str(model.id),
             conversation_id=str(model.conversation_id),
-            character=char,
+            character=Character(int(model.character)),
             context=context,
-            content=_dict_to_content(content),
+            body=_dict_to_body(body),
             created_at=model.created_at,
         )
 
@@ -174,9 +167,9 @@ class MessageMapper:
             }
         kwargs: dict = dict(
             conversation_id=entity.conversation_id,
-            character=entity.character.value if hasattr(entity.character, "value") else entity.character,
+            character=entity.character,
             context=context_dict,
-            content=_content_to_dict(entity.content),
+            body=_body_to_dict(entity.body),
         )
         if entity.id is not None:
             kwargs["id"] = entity.id
