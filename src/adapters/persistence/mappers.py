@@ -91,16 +91,16 @@ def _dict_to_body(d: dict) -> UserMessage | ToolMessage | AIMessage:
     if not d:
         return UserMessage(content="")
     msg_type = (d.get("type") or MessageType.USER.value).lower()
-    body = d.get("body", "")
+    content = d.get("content", "")
 
     if msg_type == MessageType.USER.value:
-        return UserMessage(content=body)
+        return UserMessage(content=content)
     elif msg_type == MessageType.TOOL.value:
-        return ToolMessage(content=body, tool_call_id=d.get("tool_call_id", ""), name=d.get("name", ""))
+        return ToolMessage(content=content, tool_call_id=d.get("tool_call_id", ""), name=d.get("name", ""))
     elif msg_type == MessageType.ASSISTANT.value:
         return _dict_to_ai_message(d)
     else:
-        return UserMessage(content=body)
+        return UserMessage(content=content)
 
 
 def _dict_to_ai_message(d: dict) -> AIMessage:

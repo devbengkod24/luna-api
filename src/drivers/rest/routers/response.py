@@ -36,6 +36,7 @@ async def response_text(
         f"Response text request - Conversation ID: {request.conversation_id}, "
         f"User input length: {len(request.user_input)}, "
         f"Character: {request.character}, "
+        f"TTS enabled: {request.enable_tts}, "
         f"Emotion: {request.context.emotion if request.context else 'None'}, "
         f"Name: {request.context.name if request.context else 'None'}, "
         f"NIM: {request.context.nim if request.context else 'None'}"
@@ -43,7 +44,7 @@ async def response_text(
 
     async def event_stream() -> AsyncIterator[str]:
         async for event in use_case.execute(
-            request.conversation_id, request.user_input, request.character, request.context
+            request.conversation_id, request.user_input, request.character, request.context, request.enable_tts
         ):
             yield f"data: {json.dumps(event)}\n\n"
 

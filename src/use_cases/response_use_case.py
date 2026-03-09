@@ -215,6 +215,8 @@ class ResponseTextUseCase:
             except Exception as e:
                 yield {"type": "log", "content": f"Warning: Failed to synthesize speech: {e}"}
 
+        yield {"type": "done", "conversation_id": conversation.id}
+
 
 class ResponseSpeechUseCase:
     """Use case for speech-based AI response with streaming."""
@@ -344,3 +346,5 @@ class ResponseSpeechUseCase:
                 yield {"type": "audio", "content": audio_base64}
             except Exception as e:
                 yield {"type": "log", "content": f"Warning: Failed to synthesize speech: {e}"}
+
+        yield {"type": "done", "conversation_id": conversation.id}
