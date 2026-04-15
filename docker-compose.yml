@@ -133,7 +133,7 @@ services:
       FACE_SIMILARITY_THRESHOLD: ${FACE_SIMILARITY_THRESHOLD:-0.5}
 
       # Speech / TTS
-      WHISPER_MODEL: ${WHISPER_MODEL:-large}
+      WHISPER_MODEL: ${WHISPER_MODEL:-tiny}
       VOICE_CLONE_DIR: /app/storage/voice
 
     volumes:

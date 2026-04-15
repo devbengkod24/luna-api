@@ -70,7 +70,6 @@ VSA-BE-FastAPIv2/
 
 ## Penjelasan Layer
 
-
 | Layer         | Path             | Deskripsi                                                                        |
 | ------------- | ---------------- | -------------------------------------------------------------------------------- |
 | **Domain**    | `src/domain/`    | Entitas bisnis dan tipe data inti; bebas dari framework dan infra.               |
@@ -79,14 +78,13 @@ VSA-BE-FastAPIv2/
 | **Use cases** | `src/use_cases/` | Orkestrasi logika bisnis yang memakai ports.                                     |
 | **Drivers**   | `src/drivers/`   | Entry point aplikasi: HTTP (REST), WebSocket, dan dependency injection.          |
 
-
 ---
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker & Docker Compose  
+- Docker & Docker Compose
 - Python 3.11+ (opsional, untuk development tanpa Docker)
 
 ### 1. Clone
@@ -105,7 +103,9 @@ cp .env.example .env
 
 ### 3. Jalankan dengan Docker Compose
 
-**CPU (default):**
+#### Standard (Windows & Linux native ext4/xfs):
+
+**CPU:**
 
 ```bash
 docker compose up --build -d
@@ -117,10 +117,30 @@ docker compose up --build -d
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
 ```
 
-- **API:** [http://localhost:8000](http://localhost:8000)  
-- **Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)  
-- **PostgreSQL:** localhost:5432  
-- **Qdrant:** [http://localhost:6333](http://localhost:6333)  
+#### FUSE-based Linux systems (e.g., `/mnt/adata`, WSL2):
+
+If PostgreSQL fails with `wrong ownership` error, use the FUSE workaround:
+
+**CPU:**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.fuse.yml up --build -d
+```
+
+**GPU:**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.fuse.yml up --build -d
+```
+
+> **Note:** `docker-compose.fuse.yml` uses `tmpfs` for PostgreSQL data. Data does **not** persist across container restarts but avoids ownership errors on FUSE mounts.
+
+---
+
+- **API:** [http://localhost:8000](http://localhost:8000)
+- **Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **PostgreSQL:** localhost:5432
+- **Qdrant:** [http://localhost:6333](http://localhost:6333)
 - **MinIO Console:** [http://localhost:9001](http://localhost:9001)
 
 ### 4. Migration

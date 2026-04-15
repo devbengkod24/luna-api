@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from typing import Set
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -32,7 +33,6 @@ class Settings(BaseSettings):
     database_pool_size: int = Field(default=20, alias="DATABASE_POOL_SIZE")
     database_max_overflow: int = Field(default=10, alias="DATABASE_MAX_OVERFLOW")
 
-
     @property
     def database_url(self) -> str:
         """Build async database URL for application."""
@@ -56,7 +56,9 @@ class Settings(BaseSettings):
     knowledge_collection_name: str = Field(
         default="knowledge_collection", alias="KNOWLEDGE_COLLECTION_NAME"
     )
-    faces_collection_name: str = Field(default="faces_collection", alias="FACE_COLLECTION_NAME")
+    faces_collection_name: str = Field(
+        default="faces_collection", alias="FACE_COLLECTION_NAME"
+    )
 
     # MinIO
     minio_endpoint: str = Field(..., alias="MINIO_ENDPOINT")
@@ -66,9 +68,7 @@ class Settings(BaseSettings):
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
 
     # Ollama
-    ollama_base_url: str = Field(
-        default="http://ollama:11434", alias="OLLAMA_BASE_URL"
-    )
+    ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
     ollama_llm_model: str = Field(default="llama3.1:8b", alias="OLLAMA_LLM_MODEL")
     ollama_embedding_model: str = Field(
         default="embeddinggemma:latest", alias="OLLAMA_EMBEDDING_MODEL"
@@ -77,29 +77,41 @@ class Settings(BaseSettings):
     ollama_top_p: float = Field(default=0.9, alias="OLLAMA_TOP_P")
     ollama_max_tokens: int = Field(default=1024, alias="OLLAMA_MAX_TOKENS")
 
-    gpu_device: int = Field(default=-1, alias="GPU_DEVICE") # -1 for CPU, 0+ for GPU
-    
+    gpu_device: int = Field(default=-1, alias="GPU_DEVICE")  # -1 for CPU, 0+ for GPU
+
     # Face Recognition (InsightFace)
     enable_face_recognition: bool = Field(default=True, alias="ENABLE_FACE_RECOGNITION")
-    face_recognition_model: str = Field(default="buffalo_sc", alias="FACE_RECOGNITION_MODEL")
-    face_recognition_ctx_id: int = Field(default=-1, alias="FACE_RECOGNITION_CTX_ID")  # -1 CPU, 0+ GPU
-    face_detection_size: int = Field(default=320, alias="FACE_DETECTION_SIZE") # Detection size (320 faster, 640 more accurate)
-    face_similarity_threshold: float = Field(default=0.5, alias="FACE_SIMILARITY_THRESHOLD") # Cosine similarity threshold (0.4-0.6 recommended)
+    face_recognition_model: str = Field(
+        default="buffalo_sc", alias="FACE_RECOGNITION_MODEL"
+    )
+    face_recognition_ctx_id: int = Field(
+        default=-1, alias="FACE_RECOGNITION_CTX_ID"
+    )  # -1 CPU, 0+ GPU
+    face_detection_size: int = Field(
+        default=320, alias="FACE_DETECTION_SIZE"
+    )  # Detection size (320 faster, 640 more accurate)
+    face_similarity_threshold: float = Field(
+        default=0.5, alias="FACE_SIMILARITY_THRESHOLD"
+    )  # Cosine similarity threshold (0.4-0.6 recommended)
 
     face_max_batch_size: int = 100  # Max faces per request
     face_max_image_size: int = 10 * 1024 * 1024  # 10MB
 
     persist_dir: str = "storage/index"
     rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
-    rag_allowed_extensions: Set[str] = {'.pdf', '.txt', '.docx', '.doc', '.md'}
+    rag_allowed_extensions: Set[str] = {".pdf", ".txt", ".docx", ".doc", ".md"}
 
     # Chat
     chat_max_prompt_length: int = 10000
     chat_max_audio_base64_size: int = 10 * 1024 * 1024  # 10MB
-    
+
     # Emotion Detection (HuggingFace ViT)
-    enable_emotion_detection: bool = Field(default=True, alias="ENABLE_EMOTION_DETECTION")
-    emotion_model: str = Field(default="dima806/facial_emotions_image_detection", alias="EMOTION_MODEL")
+    enable_emotion_detection: bool = Field(
+        default=True, alias="ENABLE_EMOTION_DETECTION"
+    )
+    emotion_model: str = Field(
+        default="dima806/facial_emotions_image_detection", alias="EMOTION_MODEL"
+    )
 
     # Vision / Tracker (ByteTrack)
     tracker_max_age: int = Field(default=30, alias="TRACKER_MAX_AGE")
@@ -108,16 +120,24 @@ class Settings(BaseSettings):
 
     # Vision / Recognition pipeline
     vision_emotion_interval: int = Field(default=5, alias="VISION_EMOTION_INTERVAL")
-    vision_recognition_retry_interval: float = Field(default=2.0, alias="VISION_RECOGNITION_RETRY_INTERVAL")
-    vision_max_recognition_attempts: int = Field(default=5, alias="VISION_MAX_RECOGNITION_ATTEMPTS")
+    vision_recognition_retry_interval: float = Field(
+        default=2.0, alias="VISION_RECOGNITION_RETRY_INTERVAL"
+    )
+    vision_max_recognition_attempts: int = Field(
+        default=5, alias="VISION_MAX_RECOGNITION_ATTEMPTS"
+    )
 
     # Speech-to-Text (Faster Whisper)
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
-    whisper_model: str = "large"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
+    whisper_model: str = (
+        "tiny"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
+    )
 
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
-    voice_clone_dir: str = "storage/voice"  # Directory for future voice cloning (currently unused)
+    voice_clone_dir: str = (
+        "storage/voice"  # Directory for future voice cloning (currently unused)
+    )
 
     # Rate limiting constants
     frame_timeout_seconds: float = 5.0
@@ -130,5 +150,6 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
+
 
 settings = get_settings()

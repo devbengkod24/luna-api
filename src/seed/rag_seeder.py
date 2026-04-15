@@ -3,7 +3,7 @@
 Folder structure:
     storage/rag/<tag>/file.pdf            → tags=[tag]
     storage/rag/<tag>/nested/file.pdf     → tags=[tag]  (always top-level subfolder)
-    storage/rag/file.pdf                  → skipped (no subfolder = no tag)
+    storage/rag/file.pdf                  → tags=["default"] (no subfolder)
 
 If a file with the same filename already exists, it is deleted first (re-index).
 """
@@ -15,7 +15,12 @@ from src.adapters.persistence.database import DatabaseConnection
 from src.adapters.persistence.repositories import FileRepository
 from src.config import settings
 from src.ports.services import IRAGService, IStorageService
-from src.use_cases.file_use_case import DeleteFileUseCase, IngestFileUseCase, ListFilesUseCase, UploadFileUseCase
+from src.use_cases.file_use_case import (
+    DeleteFileUseCase,
+    IngestFileUseCase,
+    ListFilesUseCase,
+    UploadFileUseCase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,35 +47,37 @@ async def run(
 
         indexed, failed = 0, 0
 
-        for subdir in sorted(rag_dir.iterdir()):
-            if not subdir.is_dir():
-                continue  # skip files directly in rag_dir
+        for path in sorted(rag_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in settings.rag_allowed_extensions:
+                continue
 
-            tag = subdir.name  # e.g., "admisi"
+            # Determine tag from subfolder or use "default" if directly in rag_dir
+            if path.parent == rag_dir:
+                tag = "default"
+            else:
+                # Find the top-level subfolder inside rag_dir
+                rel_path = path.relative_to(rag_dir)
+                tag = rel_path.parts[0]
 
-            for path in sorted(subdir.rglob("*")):
-                if not path.is_file():
-                    continue
-                if path.suffix.lower() not in settings.rag_allowed_extensions:
-                    continue
+            # Delete old entry to re-index
+            if path.name in existing:
+                await delete_uc.execute(existing[path.name])
+                logger.debug("Removed old entry: %s", path.name)
 
-                # Delete old entry to re-index
-                if path.name in existing:
-                    await delete_uc.execute(existing[path.name])
-                    logger.debug("Removed old entry: %s", path.name)
+            file = await upload_uc.execute(
+                file_content=path.read_bytes(),
+                filename=path.name,
+            )
 
-                file = await upload_uc.execute(
-                    file_content=path.read_bytes(),
-                    filename=path.name,
-                )
-
-                result = await ingest_uc.execute(file_id=file.id, tags=[tag])
-                if result["indexed"]:
-                    indexed += 1
-                    logger.debug("Indexed [%s]: %s", tag, path.name)
-                else:
-                    failed += 1
-                    logger.warning("Failed [%s]: %s", tag, path.name)
+            result = await ingest_uc.execute(file_id=file.id, tags=[tag])
+            if result["indexed"]:
+                indexed += 1
+                logger.debug("Indexed [%s]: %s", tag, path.name)
+            else:
+                failed += 1
+                logger.warning("Failed [%s]: %s", tag, path.name)
 
         await session.commit()
 

@@ -1,0 +1,15 @@
+# FUSE-based Linux workaround for PostgreSQL ownership issue
+# Usage: docker compose -f docker-compose.yml -f docker-compose.fuse.yml up --build
+#
+# This override replaces the postgres service's named volume with a local
+# host named volume bound to your home directory (~/.cache/vsa_postgres_data_driver)
+# which is located on an ext4 partition.
+# This prevents "wrong ownership" errors AND makes the data persistent.
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/tegaraji/.cache/vsa_postgres_data_driver
