@@ -28,31 +28,65 @@ from src.ports.repositories import (
 )
 
 
-def load_system_prompt(character: Character, path: str = "src/prompts") -> str:
+def load_system_prompt(
+    character: Character,
+    context: "UserContext | None" = None,
+    path: str = "src/prompts",
+) -> str:
+    """Load dan render system prompt dengan context injection.
+
+    base.txt menggunakan template placeholders:
+      {character}  — nama karakter (mis. "Russell", "Fredricksen")
+      {name}       — nama user dari UserContext
+      {nim}        — NIM user dari UserContext
+      {emotion}    — emosi user dari UserContext
+      {CHARACTER}  — isi file character (russell.txt / fredricksen.txt)
+    """
     from pathlib import Path
 
     try:
         base_dir = Path(path)
-        files = [base_dir / "base.txt"]
+        base_path = base_dir / "base.txt"
 
+        # Load character-specific file
         if character == Character.RUSSELL:
-            files.append(base_dir / "russell.txt")
+            char_path = base_dir / "russell.txt"
         elif character == Character.FREDRICKSEN:
-            files.append(base_dir / "fredricksen.txt")
+            char_path = base_dir / "fredricksen.txt"
+        else:
+            char_path = None
 
-        contents: list[str] = []
-        for file_path in files:
-            try:
-                contents.append(file_path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
+        base_content = base_path.read_text(encoding="utf-8")
 
-        if contents:
-            return "\n\n".join(contents).strip()
+        char_content = ""
+        if char_path and char_path.exists():
+            char_content = char_path.read_text(encoding="utf-8")
+
+        # Resolve UserContext values (gunakan fallback jika context None)
+        name = getattr(context, "name", None) or "Unknown"
+        nim = getattr(context, "nim", None) or "Unknown"
+        emotion = getattr(context, "emotion", None) or "neutral"
+
+        # Map Character enum ke nama string untuk {character} placeholder
+        # Character.RUSSELL (0) → "Russell", Character.FREDRICKSEN (1) → "Fredricksen"
+        _char_name_map = {
+            Character.RUSSELL: "Russell",
+            Character.FREDRICKSEN: "Fredricksen",
+        }
+        char_label = _char_name_map.get(character, character.name.capitalize())
+
+        # Inject placeholders — gunakan .format() dengan explicit mapping
+        combined = base_content.format(
+            character=char_label,
+            name=name,
+            nim=nim,
+            emotion=emotion,
+            CHARACTER=char_content,
+        )
+        return combined.strip()
+
     except Exception:
-        pass
-
-    return "You are a helpful AI assistant."
+        return "You are a helpful AI assistant."
 
 
 def build_title_prompt(user_input: str) -> str:
@@ -126,7 +160,7 @@ class ResponseTextUseCase:
             conversation = await self.conversation_repo.create(Conversation(title=title))
             yield {"type": "log", "content": f"Sesi dibuat: {title}"}
 
-        system_prompt = load_system_prompt(character)
+        system_prompt = load_system_prompt(character, context)
 
         await self.message_repo.create(
             Message(
@@ -259,7 +293,7 @@ class ResponseSpeechUseCase:
             conversation = await self.conversation_repo.create(Conversation(title=title))
             yield {"type": "log", "content": f"Sesi dibuat: {title}"}
 
-        system_prompt = load_system_prompt(character)
+        system_prompt = load_system_prompt(character, context)
 
         await self.message_repo.create(
             Message(

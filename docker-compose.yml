@@ -110,10 +110,24 @@ services:
       # Ollama (config uses OLLAMA_BASE_URL)
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_LLM_MODEL: ${OLLAMA_LLM_MODEL:-llama3.1:8b}
-      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-embeddinggemma:latest}
-      OLLAMA_TEMPERATURE: ${OLLAMA_TEMPERATURE:-0.4}
-      OLLAMA_TOP_P: ${OLLAMA_TOP_P:-0.9}
-      OLLAMA_MAX_TOKENS: ${OLLAMA_MAX_TOKENS:-1024}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:4b}
+      # LLM sampling params (mirroring GPT4All defaults dari reference experiment)
+      OLLAMA_TEMPERATURE: ${OLLAMA_TEMPERATURE:-0.3}
+      OLLAMA_TOP_P: ${OLLAMA_TOP_P:-0.6}
+      OLLAMA_MAX_TOKENS: ${OLLAMA_MAX_TOKENS:-6096}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-6096}
+      OLLAMA_TOP_K: ${OLLAMA_TOP_K:-40}
+      OLLAMA_MIN_P: ${OLLAMA_MIN_P:-0.0}
+      OLLAMA_REPEAT_PENALTY: ${OLLAMA_REPEAT_PENALTY:-1.18}
+      OLLAMA_REPEAT_LAST_N: ${OLLAMA_REPEAT_LAST_N:-64}
+      OLLAMA_NUM_BATCH: ${OLLAMA_NUM_BATCH:-128}
+
+      # Reranker (Cross-encoder, download otomatis dari HuggingFace ke ai_cache volume)
+      RERANKER_MODEL: ${RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
+      USE_RERANKER: ${USE_RERANKER:-true}
+      HF_HUB_CACHE: /root/.cache/huggingface/hub
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
 
       # MinIO
       MINIO_ENDPOINT: minio:9000
@@ -123,7 +137,7 @@ services:
       MINIO_SECURE: "false"
 
       # GPU (-1 CPU, 0+ GPU)
-      GPU_DEVICE: -1
+      GPU_DEVICE: 0
 
       # Face Recognition (InsightFace)
       ENABLE_FACE_RECOGNITION: ${ENABLE_FACE_RECOGNITION:-true}

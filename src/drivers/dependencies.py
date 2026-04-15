@@ -11,7 +11,7 @@ from src.adapters.persistence import (
     FileRepository,
 )
 from src.adapters import (
-    LangchainAgentService,
+    SimpleAgentService,
     WhisperSTTService,
     MMSTTSService,
     MinIOStorageService,
@@ -45,7 +45,7 @@ rag_service: LlamaIndexRAGService | None = None
 storage_service: MinIOStorageService | None = None
 stt_service: WhisperSTTService | None = None
 tts_service: MMSTTSService | None = None
-agent_service: LangchainAgentService | None = None
+agent_service: SimpleAgentService | None = None
 face_service: FaceStore | None = None
 face_recognition: FaceRecognitionService | None = None
 emotion_service: EmotionDetectionService | None = None
@@ -127,7 +127,7 @@ def _init_speech() -> None:
 def _init_agent() -> None:
     global agent_service
 
-    agent_service = LangchainAgentService(
+    agent_service = SimpleAgentService(
         rag_service=rag_service,
     )
 
