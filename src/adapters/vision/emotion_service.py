@@ -6,7 +6,6 @@ import logging
 import numpy as np
 import torch
 from PIL import Image
-from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 from src.config import settings
 from src.domain.entities.vision import DetectedEmotion
@@ -21,6 +20,8 @@ class EmotionDetectionService(IEmotionDetectionService):
     def __init__(self, model_name: str = None, device: str = None):
         model_name = model_name or settings.emotion_model
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+        from transformers import AutoImageProcessor, AutoModelForImageClassification
 
         self.processor = AutoImageProcessor.from_pretrained(model_name, use_fast=True)
         self.model = AutoModelForImageClassification.from_pretrained(model_name)

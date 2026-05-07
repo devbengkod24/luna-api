@@ -7,7 +7,6 @@ from typing import Optional
 
 import numpy as np
 import torch
-from transformers import VitsModel, AutoTokenizer
 from scipy.io import wavfile
 
 from src.ports.services import ITTSService
@@ -36,7 +35,8 @@ class MMSTTSService(ITTSService):
         """Load the Facebook MMS-TTS Indonesian model."""
         try:
             logger.info(f"Loading Facebook MMS-TTS model from {self.MODEL_REPO}...")
-            
+            from transformers import VitsModel, AutoTokenizer
+
             # Load model dan tokenizer
             self.model = VitsModel.from_pretrained(self.MODEL_REPO)
             self.tokenizer = AutoTokenizer.from_pretrained(self.MODEL_REPO)

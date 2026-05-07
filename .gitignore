@@ -1,3 +1,13 @@
+# Ignore local docker-compose override and the host bind directory for Postgres
+docker-compose.fuse.yml
+/.cache/vsa_postgres_data_driver/
+
+# Common ignores
+__pycache__/
+*.pyc
+.env
+venv/
+env/
 # Python
 __pycache__/
 *.py[cod]
