@@ -14,6 +14,7 @@ from src.adapters import (
     SimpleAgentService,
     WhisperSTTService,
     MMSTTSService,
+    ChatterboxSTTSService,
     MinIOStorageService,
     LlamaIndexRAGService,
     FaceStore,
@@ -44,7 +45,7 @@ db_connection: DatabaseConnection | None = None
 rag_service: LlamaIndexRAGService | None = None
 storage_service: MinIOStorageService | None = None
 stt_service: WhisperSTTService | None = None
-tts_service: MMSTTSService | None = None
+tts_service: object | None = None
 agent_service: SimpleAgentService | None = None
 face_service: FaceStore | None = None
 face_recognition: FaceRecognitionService | None = None
@@ -115,8 +116,15 @@ def _init_speech() -> None:
 
     if settings.enable_tts:
         try:
-            tts_service = MMSTTSService(voice_clone_dir=settings.voice_clone_dir)
-            print("TTS adapter initialized successfully")
+            provider = (settings.tts_provider or "mms").strip().lower()
+            if provider in {"chatterbox", "chatterbox-id", "chatterbox_indonesia"}:
+                tts_service = ChatterboxSTTSService(
+                    voice_clone_dir=settings.voice_clone_dir,
+                )
+                print("TTS adapter initialized successfully (provider=chatterbox)")
+            else:
+                tts_service = MMSTTSService()
+                print("TTS adapter initialized successfully (provider=mms)")
         except Exception as e:
             print(f"Warning: Could not initialize TTS adapter: {e}")
             tts_service = None

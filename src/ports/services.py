@@ -132,5 +132,5 @@ class ITTSService(ABC):
     """Text-to-Speech service interface."""
 
     @abstractmethod
-    async def synthesize(self, text: str) -> str:
+    async def synthesize(self, text: str, character: int) -> str:
         ...

@@ -2,6 +2,7 @@
 import base64
 import io
 import logging
+import os
 from typing import Optional
 
 import numpy as np
@@ -19,12 +20,8 @@ class MMSTTSService(ITTSService):
     
     MODEL_REPO = "facebook/mms-tts-ind"
     
-    def __init__(self, voice_clone_dir: str = "storage/voice"):
-        """Initialize the TTS adapter.
-        
-        Args:
-            voice_clone_dir: Directory for potential future voice cloning (currently unused)
-        """
+    def __init__(self):
+        """Initialize the TTS adapter."""
         # Deteksi device (CUDA jika tersedia, fallback ke CPU)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Initializing Facebook MMS-TTS on device: {self.device}")
@@ -85,12 +82,12 @@ class MMSTTSService(ITTSService):
         audio_base64 = base64.b64encode(buffer.read()).decode('utf-8')
         return audio_base64
     
-    async def synthesize(self, text: str, use_voice_clone: bool = True) -> str:
+    async def synthesize(self, text: str, character: int) -> str:
         """Synthesize text to speech audio.
         
         Args:
             text: Text to synthesize in Indonesian
-            use_voice_clone: Unused parameter (kept for interface compatibility)
+            character: Character ID (currently unused for MMS-TTS)
             
         Returns:
             Base64-encoded WAV audio data
@@ -123,4 +120,135 @@ class MMSTTSService(ITTSService):
             
         except Exception as e:
             logger.error(f"Failed to synthesize text: {e}")
+            raise
+
+
+class ChatterboxSTTSService(ITTSService):
+    """Text-to-Speech service using Chatterbox-TTS Indonesian fine-tune.
+
+    Model source:
+    - https://huggingface.co/grandhigh/Chatterbox-TTS-Indonesian
+    """
+
+    MODEL_REPO = "grandhigh/Chatterbox-TTS-Indonesian"
+    CHECKPOINT_FILENAME = "t3_cfg.safetensors"
+
+    def __init__(
+        self,
+        device: Optional[str] = None,
+        voice_clone_dir: str = "storage/voice",
+    ) -> None:
+        # Chatterbox bisa jalan di CPU, tapi CUDA sangat disarankan.
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
+        self.voice_clone_dir = voice_clone_dir
+
+        self.model = None
+        self.sr: Optional[int] = None
+        self._load_model()
+    def _character_prompt_path(self, character: int) -> Optional[str]:
+        """Resolve audio prompt path for a given character.
+
+        Convention:
+        - `storage/voice/0.wav` for Character.RUSSELL (0)
+        - `storage/voice/1.wav` for Character.FREDRICKSEN (1)
+        """
+        try:
+            filename = f"{int(character)}.wav"
+        except Exception:
+            return None
+        path = os.path.join(self.voice_clone_dir, filename)
+        return path if os.path.isfile(path) else None
+
+
+    def _load_model(self) -> None:
+        """Load base Chatterbox model and apply Indonesian fine-tune checkpoint."""
+        try:
+            logger.info("Initializing Chatterbox-TTS on device: %s", self.device)
+
+            from chatterbox.tts import ChatterboxTTS  # type: ignore
+            import perth  # type: ignore
+           
+            perth.PerthImplicitWatermarker = perth.DummyWatermarker
+
+            self.model = ChatterboxTTS.from_pretrained(device=self.device)
+            self.sr = int(getattr(self.model, "sr", 24000))
+
+            # Apply fine-tune weights (if deps are available).
+            try:
+                from huggingface_hub import hf_hub_download  # type: ignore
+                from safetensors.torch import load_file  # type: ignore
+
+                checkpoint_path = hf_hub_download(
+                    repo_id=self.MODEL_REPO,
+                    filename=self.CHECKPOINT_FILENAME,
+                )
+                state = load_file(checkpoint_path, device="cpu")
+
+                # The HF card loads into `model.t3`.
+                if not hasattr(self.model, "t3"):
+                    raise RuntimeError("ChatterboxTTS model missing attribute `t3`.")
+                self.model.t3.load_state_dict(state)
+
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+
+                logger.info(
+                    "Chatterbox-TTS Indonesian checkpoint loaded successfully (sr=%s).",
+                    self.sr,
+                )
+            except Exception as e:
+                # Keep service usable (base model) even if checkpoint can't be applied.
+                logger.warning(
+                    "Failed to apply Indonesian checkpoint; using base Chatterbox model. Error: %s",
+                    e,
+                )
+
+        except Exception as e:
+            logger.error("Failed to initialize Chatterbox-TTS: %s", e)
+            raise
+
+    def _audio_to_base64(self, audio_array: np.ndarray, sample_rate: int) -> str:
+        # Normalize defensively, then encode as 16-bit PCM WAV.
+        audio = np.asarray(audio_array, dtype=np.float32)
+        if audio.size == 0:
+            raise ValueError("Generated empty audio.")
+
+        peak = float(np.max(np.abs(audio)))
+        if peak > 1.0:
+            audio = audio / peak
+
+        audio_int16 = (audio * 32767.0).astype(np.int16)
+
+        buffer = io.BytesIO()
+        wavfile.write(buffer, sample_rate, audio_int16)
+        buffer.seek(0)
+        return base64.b64encode(buffer.read()).decode("utf-8")
+
+    async def synthesize(self, text: str, character: int) -> str:
+        if self.model is None or self.sr is None:
+            raise RuntimeError("Chatterbox TTS model not initialized")
+
+        try:
+            logger.info("Chatterbox synthesizing text: %s...", (text or "")[:50])
+
+            # `generate` usually returns a torch Tensor waveform.
+            prompt = self._character_prompt_path(character)
+            if prompt:
+                wav = self.model.generate(text, audio_prompt_path=prompt)
+            else:
+                wav = self.model.generate(text)
+
+            # Support torch Tensor / numpy.
+            if hasattr(wav, "detach"):
+                audio_np = wav.detach().cpu().numpy()
+            else:
+                audio_np = np.asarray(wav)
+
+            audio_np = np.squeeze(audio_np)
+            return self._audio_to_base64(audio_np, int(self.sr))
+
+        except Exception as e:
+            logger.error("Failed to synthesize with Chatterbox: %s", e)
             raise

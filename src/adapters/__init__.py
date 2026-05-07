@@ -3,7 +3,7 @@
 from .agent.simple_agent_service import SimpleAgentService
 from .rag.rag_service import LlamaIndexRAGService
 from .speech.stt_service import WhisperSTTService
-from .speech.tts_service import MMSTTSService
+from .speech.tts_service import MMSTTSService, ChatterboxSTTSService
 from .storage.minio_service import MinIOStorageService
 from .vision.face_store import FaceStore
 from .vision.face_recognition_service import FaceRecognitionService
@@ -15,6 +15,7 @@ __all__ = [
     "LlamaIndexRAGService",
     "WhisperSTTService",
     "MMSTTSService",
+    "ChatterboxSTTSService",
     "MinIOStorageService",
     "FaceStore",
     "FaceRecognitionService",

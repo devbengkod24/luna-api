@@ -176,22 +176,22 @@ class LlamaIndexRAGService(IRAGService):
 
         # Cross-encoder reranker: download otomatis dari HuggingFace, berjalan lokal
         # device="cpu" → agar tidak rebutan VRAM dengan Ollama (LLM tetap di GPU)
-        if settings.use_reranker:
-            self.reranker = SentenceTransformerRerank(
-                model=settings.reranker_model,
-                top_n=8,
-                device="cpu",
-            )
-        else:
-            self.reranker = None
+        # if settings.use_reranker:
+        #     self.reranker = SentenceTransformerRerank(
+        #         model=settings.reranker_model,
+        #         top_n=8,
+        #         device="cpu",
+        #     )
+        # else:
+        #     self.reranker = None
 
         self.vector_store: QdrantVectorStore | None = None
         self.storage_context: StorageContext | None = None
 
         logger.info(
-            "RagService initialized — embedding: %s, reranker: %s",
+            # "RagService initialized — embedding: %s, reranker: %s",
             settings.ollama_embedding_model,
-            settings.reranker_model if settings.use_reranker else "disabled",
+            # settings.reranker_model if settings.use_reranker else "disabled",
         )
 
     async def initialize(self) -> None:
@@ -388,11 +388,11 @@ class LlamaIndexRAGService(IRAGService):
         )
 
         # ── Step 4: Cross-encoder Rerank (jika aktif) ─────────────────────────
-        if self.reranker:
-            candidates = fused_nodes[:fetch_k]
-            final_nodes = self.reranker.postprocess_nodes(candidates, query_str=query)
-        else:
-            final_nodes = fused_nodes
+        # if self.reranker:
+        #     candidates = fused_nodes[:fetch_k]
+        #     final_nodes = self.reranker.postprocess_nodes(candidates, query_str=query)
+        # else:
+        final_nodes = fused_nodes
 
         # ── Step 5: Ambil top `limit` hasil ───────────────────────────────────
         results: List[dict] = []

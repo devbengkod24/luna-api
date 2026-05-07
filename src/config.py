@@ -69,9 +69,9 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
-    ollama_llm_model: str = Field(default="llama3.1:8b", alias="OLLAMA_LLM_MODEL")
+    ollama_llm_model: str = Field(default="gpt-oss:120b-cloud", alias="OLLAMA_LLM_MODEL")
     ollama_embedding_model: str = Field(
-        default="qwen3-embedding:4b", alias="OLLAMA_EMBEDDING_MODEL"
+        default="embeddinggemma:latest", alias="OLLAMA_EMBEDDING_MODEL"
     )
     # LLM sampling parameters — mirroring GPT4All defaults dari reference experiment
     ollama_temperature: float = Field(default=0.3, alias="OLLAMA_TEMPERATURE")
@@ -83,10 +83,10 @@ class Settings(BaseSettings):
     ollama_repeat_penalty: float = Field(default=1.18, alias="OLLAMA_REPEAT_PENALTY")
     ollama_repeat_last_n: int = Field(default=64, alias="OLLAMA_REPEAT_LAST_N")
     ollama_num_batch: int = Field(default=128, alias="OLLAMA_NUM_BATCH")
-
+    
     # Reranker (Cross-encoder via SentenceTransformer, berjalan di CPU)
-    reranker_model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RERANKER_MODEL")
-    use_reranker: bool = Field(default=True, alias="USE_RERANKER")
+    # reranker_model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RERANKER_MODEL")
+    # use_reranker: bool = Field(default=False, alias="USE_RERANKER")
 
     gpu_device: int = Field(default=-1, alias="GPU_DEVICE")  # -1 for CPU, 0+ for GPU
 
@@ -148,6 +148,12 @@ class Settings(BaseSettings):
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
     voice_clone_dir: str = (
         "storage/voice"  # Directory for future voice cloning (currently unused)
+    )
+    tts_provider: str = Field(default="chatterbox", alias="TTS_PROVIDER")
+    chatterbox_audio_prompt_path: str | None = Field(
+        default="None",
+        alias="CHATTERBOX_AUDIO_PROMPT_PATH",
+        description="Optional WAV path for Chatterbox voice cloning.",
     )
 
     # Rate limiting constants

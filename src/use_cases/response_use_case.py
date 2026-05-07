@@ -244,7 +244,7 @@ class ResponseTextUseCase:
         if enable_tts and self.tts_service and full_response:
             try:
                 yield {"type": "log", "content": "Mensintesis speech..."}
-                audio_base64 = await self.tts_service.synthesize(full_response)
+                audio_base64 = await self.tts_service.synthesize(full_response, character)
                 yield {"type": "audio", "content": audio_base64}
             except Exception as e:
                 yield {"type": "log", "content": f"Warning: Failed to synthesize speech: {e}"}
@@ -376,7 +376,7 @@ class ResponseSpeechUseCase:
         if enable_tts and self.tts_service and full_response:
             try:
                 yield {"type": "log", "content": "Mensintesis speech..."}
-                audio_base64 = await self.tts_service.synthesize(full_response)
+                audio_base64 = await self.tts_service.synthesize(full_response, character)
                 yield {"type": "audio", "content": audio_base64}
             except Exception as e:
                 yield {"type": "log", "content": f"Warning: Failed to synthesize speech: {e}"}
