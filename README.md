@@ -70,6 +70,7 @@ VSA-BE-FastAPIv2/
 
 ## Penjelasan Layer
 
+
 | Layer         | Path             | Deskripsi                                                                        |
 | ------------- | ---------------- | -------------------------------------------------------------------------------- |
 | **Domain**    | `src/domain/`    | Entitas bisnis dan tipe data inti; bebas dari framework dan infra.               |
@@ -77,6 +78,7 @@ VSA-BE-FastAPIv2/
 | **Adapters**  | `src/adapters/`  | Implementasi konkret dari ports (DB, Qdrant, MinIO, Ollama, InsightFace, dll).   |
 | **Use cases** | `src/use_cases/` | Orkestrasi logika bisnis yang memakai ports.                                     |
 | **Drivers**   | `src/drivers/`   | Entry point aplikasi: HTTP (REST), WebSocket, dan dependency injection.          |
+
 
 ---
 
@@ -157,9 +159,9 @@ Isi data awal dari folder `storage/` (wajah dari `storage/faces/`, dokumen RAG d
 
 ```bash
 # Di container
-docker compose exec fastapi python -m src.seed all    # face + rag
-docker compose exec fastapi python -m src.seed face    # wajah saja
-docker compose exec fastapi python -m src.seed rag     # RAG saja
+docker compose exec fastapi python -m src.seeder all    # face + rag
+docker compose exec fastapi python -m src.seeder face    # wajah saja
+docker compose exec fastapi python -m src.seeder rag     # RAG saja
 ```
 
 Format nama file wajah: `Nama_Nama__NIM.jpg` (nama dan NIM dipakai untuk metadata).

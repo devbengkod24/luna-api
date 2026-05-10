@@ -68,3 +68,16 @@ htmlcov/
 /storage/
 
 .cursorignore
+
+.agents/
+.cursor/
+.claude/
+
+CLAUDE.md
+skills-lock.json
+conv.txt
+
+eval_results*.json
+FAQ.txt
+scripts/
+test.txt

@@ -58,6 +58,13 @@ class IMessageRepository(ABC):
         ...
 
     @abstractmethod
+    async def get_recent_by_conversation_id(
+        self, conversation_id: str, limit: int
+    ) -> List[Message]:
+        """Get the most recent messages for a conversation, ordered by created_at."""
+        ...
+
+    @abstractmethod
     async def get_by_conversation_id_cursor(
         self,
         conversation_id: str,

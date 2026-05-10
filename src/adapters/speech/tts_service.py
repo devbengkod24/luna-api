@@ -151,8 +151,8 @@ class ChatterboxSTTSService(ITTSService):
         """Resolve audio prompt path for a given character.
 
         Convention:
-        - `storage/voice/0.wav` for Character.RUSSELL (0)
-        - `storage/voice/1.wav` for Character.FREDRICKSEN (1)
+        - `storage/voice/0.wav` for Character (0)
+        - `storage/voice/1.wav` for Character (1)
         """
         try:
             filename = f"{int(character)}.wav"

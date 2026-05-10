@@ -1,9 +1,9 @@
 """Standalone seeder CLI.
 
 Usage:
-    python -m src.seed face    # seed faces from storage/faces/
-    python -m src.seed rag     # upload + vectorize docs from storage/rag/
-    python -m src.seed all     # seed both
+    python -m src.seeder face    # seed faces from storage/faces/
+    python -m src.seeder rag     # upload + vectorize docs from storage/rag/
+    python -m src.seeder all     # seed both
 """
 
 import argparse
@@ -11,12 +11,12 @@ import asyncio
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
-logger = logging.getLogger("seed")
+logger = logging.getLogger("seeder")
 
 
 async def _run_face() -> None:
     from src.adapters import FaceStore, FaceRecognitionService
-    from src.seed import face_seeder
+    from src.seeder import face_seeder
 
     face_service = FaceStore()
     await face_service.initialize()
@@ -28,7 +28,7 @@ async def _run_rag() -> None:
     from src.adapters import MinIOStorageService, LlamaIndexRAGService
     from src.adapters.persistence.database import DatabaseConnection
     from src.config import settings
-    from src.seed import rag_seeder
+    from src.seeder import rag_seeder
 
     db = DatabaseConnection(url=settings.database_url)
     storage = MinIOStorageService()

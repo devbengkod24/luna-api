@@ -1,7 +1,10 @@
 """Dependency injection for FastAPI."""
+import logging
 from typing import AsyncGenerator
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from src.shared.exceptions import ServiceUnavailableException
 from src.adapters.persistence import (
@@ -11,7 +14,7 @@ from src.adapters.persistence import (
     FileRepository,
 )
 from src.adapters import (
-    SimpleAgentService,
+    LangchainAgentService,
     WhisperSTTService,
     MMSTTSService,
     ChatterboxSTTSService,
@@ -20,6 +23,7 @@ from src.adapters import (
     FaceStore,
     FaceRecognitionService,
     EmotionDetectionService,
+    EmoferService,
     TrackerService,
 )
 from src.config import settings
@@ -46,7 +50,7 @@ rag_service: LlamaIndexRAGService | None = None
 storage_service: MinIOStorageService | None = None
 stt_service: WhisperSTTService | None = None
 tts_service: object | None = None
-agent_service: SimpleAgentService | None = None
+agent_service: LangchainAgentService | None = None
 face_service: FaceStore | None = None
 face_recognition: FaceRecognitionService | None = None
 emotion_service: EmotionDetectionService | None = None
@@ -64,7 +68,7 @@ def initialize_dependencies() -> None:
         _init_face()
         _init_vision()
     except Exception as e:
-        print(f"Error initializing dependencies: {e}")
+        logger.critical("Error initializing dependencies: %s", e, exc_info=True)
         raise
 
 
@@ -96,9 +100,9 @@ def _init_storage() -> None:
     global storage_service
     try:
         storage_service = MinIOStorageService()
-        print("Storage service initialized successfully")
+        logger.info("Storage service initialized successfully")
     except Exception as e:
-        print(f"Warning: Could not initialize storage service: {e}")
+        logger.warning("Could not initialize storage service: %s", e)
         storage_service = None
 
 
@@ -112,7 +116,7 @@ def _init_speech() -> None:
             compute_type="int8",
         )
     else:
-        print("STT disabled (ENABLE_STT=False).")
+        logger.info("STT disabled (ENABLE_STT=False).")
 
     if settings.enable_tts:
         try:
@@ -121,21 +125,21 @@ def _init_speech() -> None:
                 tts_service = ChatterboxSTTSService(
                     voice_clone_dir=settings.voice_clone_dir,
                 )
-                print("TTS adapter initialized successfully (provider=chatterbox)")
+                logger.info("TTS adapter initialized successfully (provider=chatterbox)")
             else:
                 tts_service = MMSTTSService()
-                print("TTS adapter initialized successfully (provider=mms)")
+                logger.info("TTS adapter initialized successfully (provider=mms)")
         except Exception as e:
-            print(f"Warning: Could not initialize TTS adapter: {e}")
+            logger.warning("Could not initialize TTS adapter: %s", e)
             tts_service = None
     else:
-        print("TTS disabled (ENABLE_TTS=False).")
+        logger.info("TTS disabled (ENABLE_TTS=False).")
 
 
 def _init_agent() -> None:
     global agent_service
 
-    agent_service = SimpleAgentService(
+    agent_service = LangchainAgentService(
         rag_service=rag_service,
     )
 
@@ -143,35 +147,40 @@ def _init_agent() -> None:
 def _init_face() -> None:
     global face_service, face_recognition
     if not settings.enable_face_recognition:
-        print("Face recognition disabled (ENABLE_FACE_RECOGNITION=False).")
+        logger.info("Face recognition disabled (ENABLE_FACE_RECOGNITION=False).")
         return
     try:
         face_service = FaceStore()
         face_recognition = FaceRecognitionService()
-        print("Face service initialized successfully")
+        logger.info("Face service initialized successfully")
     except Exception as e:
-        print(f"Warning: Could not initialize face service: {e}")
+        logger.warning("Could not initialize face service: %s", e)
 
 
 def _init_vision() -> None:
     global emotion_service, tracker_service
     if not settings.enable_face_recognition:
-        print("Vision services skipped (ENABLE_FACE_RECOGNITION=False).")
+        logger.info("Vision services skipped (ENABLE_FACE_RECOGNITION=False).")
         return
     try:
         tracker_service = TrackerService()
-        print("Tracker service initialized successfully")
+        logger.info("Tracker service initialized successfully")
     except Exception as e:
-        print(f"Warning: Could not initialize tracker service: {e}")
+        logger.warning("Could not initialize tracker service: %s", e)
 
     if settings.enable_emotion_detection:
         try:
-            emotion_service = EmotionDetectionService()
-            print("Emotion detection service initialized successfully")
+            provider = (settings.emotion_provider or "huggingface").strip().lower()
+            if provider == "emofer":
+                emotion_service = EmoferService()
+                logger.info("Emotion detection service initialized (provider=emofer)")
+            else:
+                emotion_service = EmotionDetectionService()
+                logger.info("Emotion detection service initialized (provider=huggingface)")
         except Exception as e:
-            print(f"Warning: Could not initialize emotion detection service: {e}")
+            logger.warning("Could not initialize emotion detection service: %s", e)
     else:
-        print("Emotion detection disabled (ENABLE_EMOTION_DETECTION=False).")
+        logger.info("Emotion detection disabled (ENABLE_EMOTION_DETECTION=False).")
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:

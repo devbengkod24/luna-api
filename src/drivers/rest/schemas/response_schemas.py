@@ -38,7 +38,7 @@ class ResponseTextRequest(BaseModel):
     )
     character: Character = Field(
         ...,
-        description="Persona character code (0 = russell, 1 = fredricksen)",
+        description="Persona character code (0 = commander_eden, 1 = nova)",
     )
     context: UserContextSchema | None = Field(
         default=None,
@@ -68,7 +68,7 @@ class ResponseAudioRequest(BaseModel):
     )
     character: Character = Field(
         ...,
-        description="Persona character to use for responses (0 = russell, 1 = fredricksen)",
+        description="Persona character to use for responses (0 = commander_eden, 1 = nova)",
     )
     context: UserContextSchema | None = Field(
         default=None,

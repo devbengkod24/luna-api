@@ -22,7 +22,7 @@ qdrant-client==1.16.1
 langchain==1.1.0
 langchain-core==1.1.0
 langchain-ollama==1.0.0
-# langgraph==1.0.4
+langgraph-prebuilt==1.0.8
 duckduckgo-search==8.1.1
 langchain-community==0.4.1
 ddgs==9.9.3
@@ -55,6 +55,7 @@ faster-whisper==1.2.1
 
 # Emotion Detection
 transformers==5.2.0
+onnxruntime>=1.16.0
 # tensorflow==2.20.0
 # pillow==11.1.0
 
@@ -73,3 +74,5 @@ chatterbox-tts==0.1.7
 ml-dtypes==0.5.4
 
 aiofiles==24.1.0
+
+nemoguardrails==0.21.0

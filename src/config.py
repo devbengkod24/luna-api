@@ -1,9 +1,10 @@
 """Application configuration."""
 
 from functools import lru_cache
-from typing import Set
+from typing import Set, List
 
 from pydantic import Field
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -73,21 +74,17 @@ class Settings(BaseSettings):
     ollama_embedding_model: str = Field(
         default="embeddinggemma:latest", alias="OLLAMA_EMBEDDING_MODEL"
     )
-    # LLM sampling parameters — mirroring GPT4All defaults dari reference experiment
     ollama_temperature: float = Field(default=0.3, alias="OLLAMA_TEMPERATURE")
     ollama_top_p: float = Field(default=0.6, alias="OLLAMA_TOP_P")
-    ollama_max_tokens: int = Field(default=6096, alias="OLLAMA_MAX_TOKENS")
-    ollama_num_ctx: int = Field(default=6096, alias="OLLAMA_NUM_CTX")
+    # Defaults chosen to leave adequate input budget within context window.
+    ollama_num_ctx: int = Field(default=16384, alias="OLLAMA_NUM_CTX")
+    ollama_max_tokens: int = Field(default=1024, alias="OLLAMA_MAX_TOKENS")
     ollama_top_k: int = Field(default=40, alias="OLLAMA_TOP_K")
     ollama_min_p: float = Field(default=0.0, alias="OLLAMA_MIN_P")
     ollama_repeat_penalty: float = Field(default=1.18, alias="OLLAMA_REPEAT_PENALTY")
     ollama_repeat_last_n: int = Field(default=64, alias="OLLAMA_REPEAT_LAST_N")
     ollama_num_batch: int = Field(default=128, alias="OLLAMA_NUM_BATCH")
     
-    # Reranker (Cross-encoder via SentenceTransformer, berjalan di CPU)
-    # reranker_model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RERANKER_MODEL")
-    # use_reranker: bool = Field(default=False, alias="USE_RERANKER")
-
     gpu_device: int = Field(default=-1, alias="GPU_DEVICE")  # -1 for CPU, 0+ for GPU
 
     # Face Recognition (InsightFace)
@@ -111,17 +108,34 @@ class Settings(BaseSettings):
     persist_dir: str = "storage/index"
     rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
     rag_allowed_extensions: Set[str] = {".pdf", ".txt", ".docx", ".doc", ".md"}
+    rag_chunk_strategy: str = Field(default="semantic", alias="RAG_CHUNK_STRATEGY")  # "token" | "semantic"
+    rag_chunk_size: int = Field(default=512, alias="RAG_CHUNK_SIZE")
+    rag_chunk_overlap: int = Field(default=50, alias="RAG_CHUNK_OVERLAP")
 
     # Chat
     chat_max_prompt_length: int = 10000
     chat_max_audio_base64_size: int = 10 * 1024 * 1024  # 10MB
+    chat_history_limit: int = Field(default=20, alias="CHAT_HISTORY_LIMIT")
+    sse_idle_timeout_seconds: float = Field(default=60.0, alias="SSE_IDLE_TIMEOUT_SECONDS")
+    agent_idle_timeout_seconds: float = Field(default=45.0, alias="AGENT_IDLE_TIMEOUT_SECONDS")
+    agent_tool_timeout_seconds: float = Field(default=20.0, alias="AGENT_TOOL_TIMEOUT_SECONDS")
 
-    # Emotion Detection (HuggingFace ViT)
+    # Emotion Detection
     enable_emotion_detection: bool = Field(
         default=True, alias="ENABLE_EMOTION_DETECTION"
     )
+    emotion_provider: str = Field(
+        default="emofer", alias="EMOTION_PROVIDER"
+    )  # "huggingface" or "emofer"
     emotion_model: str = Field(
         default="dima806/facial_emotions_image_detection", alias="EMOTION_MODEL"
+    )
+    # Emofer ONNX model paths (used when EMOTION_PROVIDER=emofer)
+    emofer_vad_model_path: str = Field(
+        default="storage/models/vad_multitask.onnx", alias="EMOFER_VAD_MODEL_PATH"
+    )
+    emofer_emotic_model_path: str = Field(
+        default="storage/models/emotic.onnx", alias="EMOFER_EMOTIC_MODEL_PATH"
     )
 
     # Vision / Tracker (ByteTrack)
@@ -140,9 +154,9 @@ class Settings(BaseSettings):
 
     # Speech-to-Text (Faster Whisper)
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
-    whisper_model: str = (
-        "tiny"  # tiny, base, xsmall, medium, large-v1, large-v2, large-v3
-    )
+    whisper_model: str = Field(default="tiny", alias="WHISPER_MODEL")
+    whisper_language: str = Field(default="id", alias="WHISPER_LANGUAGE")
+    whisper_beam_size: int = Field(default=5, alias="WHISPER_BEAM_SIZE")
 
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
@@ -160,7 +174,43 @@ class Settings(BaseSettings):
     frame_timeout_seconds: float = 5.0
 
     # CORS
-    cors_origins: str = "*"
+    cors_origins: List[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")
+
+    # Request / streaming
+    request_id_header: str = Field(default="X-Request-ID", alias="REQUEST_ID_HEADER")
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v):
+        if v is None:
+            return ["*"]
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            raw = v.strip()
+            if not raw:
+                return ["*"]
+            if raw == "*":
+                return ["*"]
+            # allow comma-separated: "https://a.com,https://b.com"
+            if raw.startswith("["):
+                # JSON list string; let pydantic parse it in later stage if possible
+                return v
+            return [part.strip() for part in raw.split(",") if part.strip()]
+        return v
+
+    # @field_validator("ollama_max_tokens")
+    # @classmethod
+    # def _validate_ollama_budget(cls, v, info):
+    #     data = info.data or {}
+    #     num_ctx = int(data.get("ollama_num_ctx") or 0)
+    #     safety = int(data.get("ollama_ctx_safety_margin") or 0)
+    #     if num_ctx and v >= max(1, num_ctx - safety):
+    #         raise ValueError(
+    #             f"OLLAMA_MAX_TOKENS must be < OLLAMA_NUM_CTX - safety_margin "
+    #             f"({v} >= {num_ctx} - {safety})"
+    #         )
+    #     return v
 
 
 @lru_cache()

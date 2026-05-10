@@ -1,4 +1,5 @@
 """MinIO storage service implementation."""
+import asyncio
 import io
 
 from minio import Minio
@@ -22,7 +23,7 @@ class MinIOStorageService(IStorageService):
         self.bucket_name = settings.minio_bucket_name
         self._ensure_bucket()
 
-    def _ensure_bucket(self):
+    def _ensure_bucket(self) -> None:
         try:
             if not self.client.bucket_exists(self.bucket_name):
                 self.client.make_bucket(self.bucket_name)
@@ -30,9 +31,9 @@ class MinIOStorageService(IStorageService):
             raise InternalServerException(f"MinIO error: {str(e)}")
 
     async def upload_file(self, file_content: bytes, filename: str, content_type: str) -> str:
-        """Upload file bytes and return storage path (filename)."""
         try:
-            self.client.put_object(
+            await asyncio.to_thread(
+                self.client.put_object,
                 self.bucket_name,
                 filename,
                 io.BytesIO(file_content),
@@ -44,20 +45,22 @@ class MinIOStorageService(IStorageService):
             raise InternalServerException(f"Upload failed: {str(e)}")
 
     async def download_file(self, storage_path: str) -> bytes:
-        """Download file bytes from storage."""
-        try:
+        def _read() -> bytes:
             response = self.client.get_object(self.bucket_name, storage_path)
-            data = response.read()
-            response.close()
-            response.release_conn()
-            return data
+            try:
+                return response.read()
+            finally:
+                response.close()
+                response.release_conn()
+
+        try:
+            return await asyncio.to_thread(_read)
         except S3Error as e:
             raise InternalServerException(f"Download failed: {str(e)}")
 
     async def delete_file(self, storage_path: str) -> bool:
-        """Delete file from storage."""
         try:
-            self.client.remove_object(self.bucket_name, storage_path)
+            await asyncio.to_thread(self.client.remove_object, self.bucket_name, storage_path)
             return True
         except S3Error:
             return False

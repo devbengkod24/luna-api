@@ -185,8 +185,7 @@ async def vision_stream(
             f"Unexpected error in WebSocket connection: {e}", exc_info=True
         )
     finally:
-        # Cleanup resources if needed
         try:
             await websocket.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Error closing WebSocket: %s", e)

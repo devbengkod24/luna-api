@@ -2,9 +2,10 @@
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 
 from src.adapters.persistence.models import Base
+from src.config import settings
 
 
 class DatabaseConnection:
@@ -18,7 +19,10 @@ class DatabaseConnection:
         """
         self.engine = create_async_engine(
             url,
-            poolclass=NullPool,
+            poolclass=AsyncAdaptedQueuePool,
+            pool_size=settings.database_pool_size,
+            max_overflow=settings.database_max_overflow,
+            pool_pre_ping=True,
             future=True,
             echo=False,
         )

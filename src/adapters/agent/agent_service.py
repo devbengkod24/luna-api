@@ -1,13 +1,17 @@
 import math
+from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+import asyncio
 from langchain.agents import create_agent
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
+from nemoguardrails import LLMRails, RailsConfig
 from sympy import SympifyError, sympify
 
+from src.adapters.agent.middlewares.pseudo_tool_mitigation import strip_pseudo_tools_middleware
 from src.config import settings
 from src.domain.entities import UserContext
 from src.ports.services import IAgentService, IRAGService
@@ -15,6 +19,9 @@ from src.shared.constants import MessageType
 
 import logging
 logger = logging.getLogger(__name__)
+
+_GUARDRAIL_PASS = "GUARDRAIL_PASS"
+_GUARDRAILS_PATH = Path(__file__).parent / "guardrails"
 
 
 class LangchainAgentService(IAgentService):
@@ -29,13 +36,28 @@ class LangchainAgentService(IAgentService):
         self.llm = ChatOllama(
             model=settings.ollama_llm_model,
             base_url=settings.ollama_base_url,
+
             temperature=settings.ollama_temperature,
             top_p=settings.ollama_top_p,
-            max_tokens=settings.ollama_max_tokens,
+            # top_k=settings.ollama_top_k,
+            # min_p=settings.ollama_min_p,
+
+            # num_ctx=settings.ollama_num_ctx,
+            # num_predict=settings.ollama_max_tokens,
+            # num_batch=settings.ollama_num_batch,
+
+            # repeat_penalty=settings.ollama_repeat_penalty,
+            # repeat_last_n=settings.ollama_repeat_last_n,
         )
 
         self.tools = self._create_tools()
         self.agent = None
+
+        try:
+            self.rails = LLMRails(RailsConfig.from_path(str(_GUARDRAILS_PATH)))
+        except Exception as e:
+            logger.warning("Guardrails init failed (running without guardrails): %s", e)
+            self.rails = None
 
     def _create_tools(self):
         @tool
@@ -83,7 +105,8 @@ class LangchainAgentService(IAgentService):
             DO NOT use for general information outside Udinus context.
             """
             try:
-                results = await self.rag_service.retrieve(query, limit=3)
+                async with asyncio.timeout(settings.agent_tool_timeout_seconds):
+                    results = await self.rag_service.retrieve(query, limit=3)
 
                 if not results:
                     return "No relevant information found in Udinus knowledge base."
@@ -106,25 +129,25 @@ class LangchainAgentService(IAgentService):
     async def generate_stream(
         self,
         user_input: str,
-        system_prompt: str,
         messages: List[Dict[str, str]],
         context: Optional[UserContext] = None,
+        system_prompt: str | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         try:
             chat_history = []
             for msg in messages:
-                type = msg.get("type")
+                msg_type = (msg.get("type") or "").strip().lower()
                 content = msg.get("content", "")
 
-                if type == MessageType.USER:
+                if msg_type == MessageType.USER.value:
                     chat_history.append(HumanMessage(content=content))
-                elif type == MessageType.ASSISTANT:
+                elif msg_type == MessageType.ASSISTANT.value:
                     tool_calls = msg.get("additional_kwargs", {}).get("tool_calls", [])
                     chat_history.append(AIMessage(
                         content=content,
                         additional_kwargs={"tool_calls": tool_calls}
                     ))
-                elif type == MessageType.TOOL:
+                elif msg_type == MessageType.TOOL.value:
                     tool_call_id = msg.get("tool_call_id")
                     name = msg.get("name", "")
                     chat_history.append(ToolMessage(
@@ -133,10 +156,23 @@ class LangchainAgentService(IAgentService):
                         name=name
                     ))
 
+            if self.rails:
+                try:
+                    check = await self.rails.generate_async(
+                        messages=[{"role": "user", "content": user_input}]
+                    )
+                    content = check.get("content", "")
+                    if content and content != _GUARDRAIL_PASS:
+                        yield {"type": "token", "content": content}
+                        return
+                except Exception as e:
+                    logger.warning("Guardrails check error (skipping): %s", e)
+
             self.agent = create_agent(
                 model=self.llm,
                 tools=self.tools,
-                system_prompt=system_prompt,
+                system_prompt=system_prompt or "",
+                middleware=[strip_pseudo_tools_middleware],
             )
 
             yield {"type": "log", "content": "Memproses dengan agent..."}
@@ -216,5 +252,5 @@ class LangchainAgentService(IAgentService):
             return title or "Obrolan Baru"
 
         except Exception as e:
-            print(f"Error generating title: {e}")
+            logger.error("Error generating title: %s", e)
             return "Obrolan Baru"

@@ -64,7 +64,7 @@ class VisionUseCase:
     ) -> Optional[Identity]:
         state.record_recognition_attempt(quality)
 
-        embedding = self.face_recognition.extract_embedding(aligned_face)
+        embedding = await asyncio.to_thread(self.face_recognition.extract_embedding, aligned_face)
         if not embedding:
             return None
         state.last_embedding = embedding
@@ -103,7 +103,7 @@ class VisionUseCase:
 
         aligned = None
         if tracked.landmark:
-            aligned = self.face_recognition.align_face(frame, tracked.landmark)
+            aligned = await asyncio.to_thread(self.face_recognition.align_face, frame, tracked.landmark)
 
         # Build parallel tasks
         tasks, labels = [], []
@@ -125,7 +125,12 @@ class VisionUseCase:
             and state.should_detect_emotion(frame_id, self.emotion_interval)
         )
         if need_emotion:
-            tasks.append(asyncio.to_thread(self.emotion_detection.detect_emotion_from_array, aligned))
+            tasks.append(asyncio.to_thread(
+                self.emotion_detection.detect_emotion_with_context,
+                aligned,
+                frame,
+                tracked.bbox,
+            ))
             labels.append("emotion")
 
         for label, result in zip(labels, await asyncio.gather(*tasks)):
@@ -149,11 +154,11 @@ class VisionUseCase:
     # --- Main entry point ---
 
     async def execute(self, frame_bytes: bytes, frame_id: int = 0) -> List[VisionResult]:
-        frame = self.face_recognition.decode_from_bytes(frame_bytes)
+        frame = await asyncio.to_thread(self.face_recognition.decode_from_bytes, frame_bytes)
         if frame is None:
             return []
 
-        detections = self.face_recognition.detect_faces_only_from_array(frame)
+        detections = await asyncio.to_thread(self.face_recognition.detect_faces_only_from_array, frame)
         if not detections:
             if self.tracker:
                 _, dead = self.tracker.track([], frame_id)

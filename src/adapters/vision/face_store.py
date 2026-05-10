@@ -1,7 +1,10 @@
 """Qdrant face vector store — implements IFaceService."""
 
+import logging
 import uuid
 from typing import List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
@@ -165,5 +168,6 @@ class FaceStore(IFaceService):
                 points_selector=[face_id],
             )
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to delete face %s: %s", face_id, e)
             return False

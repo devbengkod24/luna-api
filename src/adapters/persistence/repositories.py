@@ -117,6 +117,20 @@ class MessageRepository(IMessageRepository):
         models = result.scalars().all()
         return [MessageMapper.to_entity(m) for m in models]
 
+    async def get_recent_by_conversation_id(
+        self, conversation_id: str, limit: int
+    ) -> list[Message]:
+        stmt = (
+            select(MessageModel)
+            .where(MessageModel.conversation_id == conversation_id)
+            .order_by(MessageModel.created_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        models = list(result.scalars().all())
+        models.reverse()  # return ascending by created_at
+        return [MessageMapper.to_entity(m) for m in models]
+
     async def get_by_conversation_id_cursor(
         self,
         conversation_id: str,
@@ -203,7 +217,7 @@ class FileRepository(IFileRepository):
         )
         await self.session.execute(stmt)
         await self.session.flush()
-        return await self.get_by_id(file.id)
+        return file
 
     async def delete(self, id: str) -> bool:
         stmt = select(FileModel).where(FileModel.id == id)

@@ -84,17 +84,30 @@ class ITrackerService(ABC):
 
 class IEmotionDetectionService(ABC):
     """Interface for emotion detection."""
-    
+
     @abstractmethod
     def detect_emotion(
         self, face_crop_bytes: bytes,
     ) -> DetectedEmotion:
         """Detect emotion from face region (bytes input)."""
         ...
-    
+
     @abstractmethod
     def detect_emotion_from_array(
         self, face_image: np.ndarray,
     ) -> DetectedEmotion:
         """Detect emotion from face region (numpy array input)."""
         ...
+
+    def detect_emotion_with_context(
+        self,
+        face_image: np.ndarray,
+        full_frame: np.ndarray,
+        bbox: "BoundingBox",
+    ) -> DetectedEmotion:
+        """Detect emotion with optional scene context (full frame + bounding box).
+
+        Default implementation ignores context and delegates to detect_emotion_from_array.
+        Override in adapters that support contextual fusion (e.g. EmoferService).
+        """
+        return self.detect_emotion_from_array(face_image)

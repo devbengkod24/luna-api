@@ -1,5 +1,6 @@
 """Face use cases — register, list, get, delete."""
 
+import asyncio
 import base64
 import logging
 from typing import List, Optional, Tuple
@@ -40,9 +41,9 @@ class RegisterFacesUseCase:
         except Exception:
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Invalid base64 image")
         try:
-            detected = self.recognition.detect_faces(image_bytes)
+            detected = await asyncio.to_thread(self.recognition.detect_faces, image_bytes)
         except Exception as e:
-            logger.error(f"Face detection error for {nim}: {e}", exc_info=True)
+            logger.error("Face detection error: %s", e, exc_info=True)
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Face detection failed")
 
         if not detected:
@@ -59,7 +60,7 @@ class RegisterFacesUseCase:
         try:
             existing = await self.face_service.get_by_nim(nim)
         except Exception as e:
-            logger.error(f"Qdrant query error for {nim}: {e}", exc_info=True)
+            logger.error("Qdrant query error: %s", e, exc_info=True)
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Storage query failed")
 
         if existing and skip_existing:
@@ -72,11 +73,11 @@ class RegisterFacesUseCase:
         try:
             await self.face_service.add_face(face)
         except Exception as e:
-            logger.error(f"Failed to store face for {nim}: {e}", exc_info=True)
+            logger.error("Failed to store face: %s", e, exc_info=True)
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Failed to store face")
 
         action = "updated" if existing else "registered"
-        logger.info(f"Face {action}: {name} ({nim})")
+        logger.info("Face %s (id=%s)", action, face_id)
         return FaceRegistrationResult(success=True, face_id=face_id, name=name, nim=nim, message=f"Face {action} successfully")
 
 

@@ -158,8 +158,8 @@ class IngestFileUseCase:
                 try:
                     file.status = FileStatus.FAILED
                     await self.file_repo.update(file)
-                except Exception:
-                    pass
+                except Exception as update_err:
+                    logger.warning("Failed to update file status to FAILED: %s", update_err)
 
         return {
             "success": failed == 0,

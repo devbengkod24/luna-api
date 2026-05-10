@@ -13,6 +13,7 @@ class IAgentService(ABC):
     @abstractmethod
     async def generate_stream(
         self,
+        user_input: str,
         messages: List[Dict[str, str]],
         context: Optional[UserContext] = None,
         system_prompt: Optional[str] = None,

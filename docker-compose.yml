@@ -84,70 +84,30 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Application
-      APP_NAME: VSA-BE-FastAPI-v2
-      APP_VERSION: 1.0.0
-      ENVIRONMENT: development
-      DEBUG: true
-      API_V1_PREFIX: /api/v1
-
       # PostgreSQL
       POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
       POSTGRES_DB: vsa_db
       POSTGRES_USER: bengkod
       POSTGRES_PASSWORD: vsa_kece
-      DATABASE_POOL_SIZE: 20
-      DATABASE_MAX_OVERFLOW: 10
 
       # Qdrant
       QDRANT_HOST: qdrant
-      QDRANT_PORT: 6333
-      QDRANT_GRPC_PORT: 6334
-      KNOWLEDGE_COLLECTION_NAME: knowledge_collection
-      FACE_COLLECTION_NAME: faces_collection
-
-      # Ollama (config uses OLLAMA_BASE_URL)
-      OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_LLM_MODEL: gpt-oss:120b-cloud
-      OLLAMA_EMBEDDING_MODEL: embeddinggemma:latest
-      OLLAMA_TEMPERATURE: 0.3
-      OLLAMA_TOP_P: 0.6
-      OLLAMA_MAX_TOKENS: 6096
-      OLLAMA_NUM_CTX: 6096
-      OLLAMA_TOP_K: 40
-      OLLAMA_MIN_P: 0.0
-      OLLAMA_REPEAT_PENALTY: 1.18
-      OLLAMA_REPEAT_LAST_N: 64
-      OLLAMA_NUM_BATCH: 128
-
-      # Reranker (Cross-encoder, download otomatis dari HuggingFace ke ai_cache volume)
-      # RERANKER_MODEL: "BAAI/bge-reranker-v2-m3"
-      # USE_RERANKER: true
-      # HF_HUB_CACHE: /root/.cache/huggingface/hub
-      # HF_HOME: /root/.cache/huggingface
-      # HF_HUB_DISABLE_PROGRESS_BARS: "1"
 
       # MinIO
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET_NAME: vsa-files
-      MINIO_SECURE: "false"
-
+      
       # GPU (-1 CPU, 0+ GPU)
       GPU_DEVICE: -1
 
       # Face Recognition (InsightFace)
-      ENABLE_FACE_RECOGNITION: true
-      FACE_RECOGNITION_MODEL: buffalo_sc
-      FACE_RECOGNITION_CTX_ID: -1
-      FACE_DETECTION_SIZE: 320
-      FACE_SIMILARITY_THRESHOLD: 0.5
+      ENABLE_FACE_RECOGNITION: false
+      ENABLE_EMOTION_DETECTION: false
+      FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
 
       # Speech / TTS
       WHISPER_MODEL: tiny
-      VOICE_CLONE_DIR: /app/storage/voice
 
     volumes:
       # - ./src:/app/src

@@ -1,0 +1,29 @@
+# ============================================================
+# Bengbot Guardrails — Colang 1.0
+# Flow tunggal yang menangani semua check secara berurutan.
+# Python actions menghindari extra LLM call untuk pesan valid.
+# ============================================================
+
+define flow check blocked input
+  $jailbreak = execute is_jailbreak_attempt
+  if $jailbreak
+    bot refuse jailbreak
+    stop
+  $harmful = execute is_harmful_content
+  if $harmful
+    bot refuse harmful
+    stop
+  bot input allowed
+  stop
+
+
+# --- Bot responses ---
+
+define bot input allowed
+  "GUARDRAIL_PASS"
+
+define bot refuse jailbreak
+  "Maaf, saya tidak bisa mengubah identitas atau mengabaikan instruksi saya sebagai Bengbot. Saya siap membantu pertanyaan seputar Universitas Dian Nuswantoro atau topik umum lainnya!"
+
+define bot refuse harmful
+  "Maaf, permintaan tersebut tidak dapat saya proses. Saya hanya bisa membantu dengan hal-hal yang aman dan bermanfaat. Silakan ajukan pertanyaan lain."
