@@ -18,6 +18,7 @@ from src.adapters import (
     WhisperSTTService,
     MMSTTSService,
     ChatterboxSTTSService,
+    F5TTSIndonesianService,
     MinIOStorageService,
     LlamaIndexRAGService,
     FaceStore,
@@ -126,6 +127,11 @@ def _init_speech() -> None:
                     voice_clone_dir=settings.voice_clone_dir,
                 )
                 logger.info("TTS adapter initialized successfully (provider=chatterbox)")
+            elif provider in {"f5", "f5-tts", "f5_tts", "f5-indonesia", "f5_indo"}:
+                tts_service = F5TTSIndonesianService(
+                    voice_clone_dir=settings.voice_clone_dir,
+                )
+                logger.info("TTS adapter initialized successfully (provider=f5)")
             else:
                 tts_service = MMSTTSService()
                 logger.info("TTS adapter initialized successfully (provider=mms)")

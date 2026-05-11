@@ -102,9 +102,11 @@ services:
       GPU_DEVICE: -1
 
       # Face Recognition (InsightFace)
-      ENABLE_FACE_RECOGNITION: false
+      ENABLE_FACE_RECOGNITION: true
       ENABLE_EMOTION_DETECTION: false
       FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
+
+      TTS_PROVIDER: f5
 
       # Speech / TTS
       WHISPER_MODEL: tiny

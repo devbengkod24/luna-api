@@ -67,7 +67,7 @@ class FaceStore(IFaceService):
             FaceData(
                 id=str(top.id),
                 name=top.payload.get("name", "Unknown"),
-                nim=top.payload.get("nim", ""),
+                nim=top.payload.get("nim"),
                 embedding=[],
             ),
             top.score,
@@ -88,7 +88,7 @@ class FaceStore(IFaceService):
                 faces.append(FaceData(
                     id=str(r.id),
                     name=r.payload.get("name", "Unknown"),
-                    nim=r.payload.get("nim", ""),
+                    nim=r.payload.get("nim"),
                     embedding=[],
                 ))
             if next_offset is None:
@@ -114,7 +114,7 @@ class FaceStore(IFaceService):
             FaceData(
                 id=str(r.id),
                 name=r.payload.get("name", "Unknown"),
-                nim=r.payload.get("nim", ""),
+                nim=r.payload.get("nim"),
                 embedding=[],
             )
             for r in records
@@ -137,7 +137,7 @@ class FaceStore(IFaceService):
         return FaceData(
             id=str(r.id),
             name=r.payload.get("name", "Unknown"),
-            nim=r.payload.get("nim", ""),
+            nim=r.payload.get("nim"),
             embedding=[],
         )
 
@@ -157,7 +157,7 @@ class FaceStore(IFaceService):
         return FaceData(
             id=str(r.id),
             name=r.payload.get("name", "Unknown"),
-            nim=r.payload.get("nim", ""),
+            nim=r.payload.get("nim"),
             embedding=[],
         )
 

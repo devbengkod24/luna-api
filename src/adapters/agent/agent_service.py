@@ -254,3 +254,15 @@ class LangchainAgentService(IAgentService):
         except Exception as e:
             logger.error("Error generating title: %s", e)
             return "Obrolan Baru"
+
+    async def preprocess_tts(self, text: str, system_prompt: str) -> str:
+        """Preprocess text for TTS."""
+        try:
+            messages = [SystemMessage(content=system_prompt), HumanMessage(content=text)]
+            response = await self.llm.ainvoke(messages)
+
+            return response.content.strip()
+
+        except Exception as e:
+            logger.error("Error preprocess text for TTS: %s", e)
+            return text

@@ -14,11 +14,11 @@ class RegisterFaceItem(BaseModel):
         max_length=200,
         description="Name"
     )
-    nim: str = Field(
-        ..., 
-        min_length=14, 
+    nim: str | None = Field(
+        default=None,
+        min_length=14,
         max_length=14,
-        description="Student NIM"
+        description="Student NIM (optional)"
     )
     image_base64: str = Field(
         ..., 
@@ -28,19 +28,12 @@ class RegisterFaceItem(BaseModel):
 
     @field_validator('nim')
     @classmethod
-    def validate_nim_format(cls, v: str) -> str:
-        """Validate NIM format."""
-        if not v:
-            raise ValueError("NIM cannot be empty")
-        
-        nim_pattern = r'^[A-Z][0-9]{2}\.[0-9]{4}\.[0-9]{5}$'
-        
-        if not re.match(nim_pattern, v.strip()):
-            raise ValueError(
-                "NIM format is invalid."
-            )
-        
-        return v.strip()
+    def validate_nim_format(cls, v: str | None) -> str | None:
+        """Validate NIM format (optional)."""
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
 
     @field_validator('image_base64')
     @classmethod
@@ -85,7 +78,7 @@ class FaceResponse(BaseModel):
     """Response model for a registered face."""
     id: str
     name: str
-    nim: str
+    nim: str | None = None
 
 
 class ListFacesResponse(BaseModel):

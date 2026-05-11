@@ -125,7 +125,7 @@ class Identity:
     
     face_id: str
     name: str
-    nim: str
+    nim: Optional[str] = None
     similarity_score: float = 0.0
     
     def to_dict(self) -> dict:

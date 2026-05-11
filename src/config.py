@@ -160,8 +160,10 @@ class Settings(BaseSettings):
 
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
-    voice_clone_dir: str = (
-        "storage/voice"  # Directory for future voice cloning (currently unused)
+    voice_clone_dir: str = Field(
+        default="storage/voice",
+        alias="VOICE_CLONE_DIR",
+        description="Directory for TTS reference voice audio files.",
     )
     tts_provider: str = Field(default="chatterbox", alias="TTS_PROVIDER")
     chatterbox_audio_prompt_path: str | None = Field(

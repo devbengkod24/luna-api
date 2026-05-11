@@ -8,8 +8,8 @@ class MessageType(Enum):
 
 
 class Character(int, Enum):
-    COMMANDER_EDEN = 0
-    NOVA = 1
+    VENDRA = 0
+    SHAZIA = 1
 
 class StorageType(Enum):
     """Storage type enumeration."""

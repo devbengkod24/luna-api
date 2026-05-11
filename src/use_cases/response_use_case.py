@@ -41,16 +41,34 @@ def _load_prompt_templates(path: str) -> dict[str, str]:
     base_dir = Path(path)
     base_content = (base_dir / "base.txt").read_text(encoding="utf-8")
 
-    char_templates: dict[str, str] = {"base": base_content, "commander_eden": "", "nova": ""}
-    commander_eden_path = base_dir / "commander_eden.txt"
-    if commander_eden_path.exists():
-        char_templates["commander_eden"] = commander_eden_path.read_text(encoding="utf-8")
+    char_templates: dict[str, str] = {"base": base_content, "vendra": "", "shazia": ""}
+    vendra_path = base_dir / "vendra.txt"
+    if vendra_path.exists():
+        char_templates["vendra"] = vendra_path.read_text(encoding="utf-8")
 
-    nova_path = base_dir / "nova.txt"
-    if nova_path.exists():
-        char_templates["nova"] = nova_path.read_text(encoding="utf-8")
+    shazia_path = base_dir / "shazia.txt"
+    if shazia_path.exists():
+        char_templates["shazia"] = shazia_path.read_text(encoding="utf-8")
 
     return char_templates
+
+
+@lru_cache(maxsize=None)
+def load_tts_system_prompt(path: str = "src/prompts/text-to-speech.txt") -> str:
+    """Load the TTS preprocessing system prompt."""
+    try:
+        from pathlib import Path
+
+        prompt = Path(path).read_text(encoding="utf-8").strip()
+        if prompt:
+            return prompt
+    except Exception:
+        logger.exception("Failed to load TTS system prompt")
+
+    return (
+        "Rewrite the text into concise, natural Indonesian that is easy to read "
+        "aloud by a TTS model. Preserve meaning and output only the speakable text."
+    )
 
 
 def load_system_prompt(
@@ -62,10 +80,10 @@ def load_system_prompt(
     try:
         templates = _load_prompt_templates(path)
 
-        if character == Character.COMMANDER_EDEN:
-            char_content = templates.get("commander_eden", "")
-        elif character == Character.NOVA:
-            char_content = templates.get("nova", "")
+        if character == Character.VENDRA:
+            char_content = templates.get("vendra", "")
+        elif character == Character.SHAZIA:
+            char_content = templates.get("shazia", "")
         else:
             char_content = ""
 
@@ -74,8 +92,8 @@ def load_system_prompt(
         emotion = getattr(context, "emotion", None) or "neutral"
 
         _char_name_map = {
-            Character.COMMANDER_EDEN: "Commander Eden",
-            Character.NOVA: "Nova",
+            Character.VENDRA: "Vendra",
+            Character.SHAZIA: "Shazia",
         }
         char_label = _char_name_map.get(character, character.name.capitalize())
 
@@ -126,6 +144,20 @@ def _message_content_to_agent_dict(content: UserMessage | ToolMessage | AIMessag
             "additional_kwargs": {"tool_calls": tool_calls},
         }
     return {"type": MessageType.USER.value, "content": ""}
+
+
+async def _yield_heartbeats_until_done(
+    task: asyncio.Task,
+    message: str,
+) -> AsyncGenerator[dict, None]:
+    """Yield periodic log events while a long-running task is still active."""
+    heartbeat_interval = max(1.0, min(10.0, settings.sse_idle_timeout_seconds / 4))
+    elapsed = 0.0
+    while not task.done():
+        done, _ = await asyncio.wait({task}, timeout=heartbeat_interval)
+        if not done:
+            elapsed += heartbeat_interval
+            yield {"type": "log", "content": f"{message} ({int(elapsed)}s)"}
 
 
 async def _stream_conversation(
@@ -263,7 +295,24 @@ async def _stream_conversation(
     if enable_tts and tts_service and full_response:
         try:
             yield {"type": "log", "content": "Mensintesis speech..."}
-            audio_base64 = await tts_service.synthesize(full_response, character)
+            tts_system_prompt = load_tts_system_prompt()
+            preprocess_task = asyncio.create_task(
+                agent_service.preprocess_tts(full_response, tts_system_prompt)
+            )
+            async for heartbeat in _yield_heartbeats_until_done(
+                preprocess_task, "Menyiapkan teks untuk speech..."
+            ):
+                yield heartbeat
+            preprocessed_response = preprocess_task.result()
+
+            synth_task = asyncio.create_task(
+                tts_service.synthesize(preprocessed_response, character)
+            )
+            async for heartbeat in _yield_heartbeats_until_done(
+                synth_task, "Mensintesis speech..."
+            ):
+                yield heartbeat
+            audio_base64 = synth_task.result()
             yield {"type": "audio", "content": audio_base64}
         except Exception as e:
             logger.warning("TTS synth failed (conversation_id=%s): %s", conversation.id, e)

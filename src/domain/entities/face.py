@@ -10,11 +10,13 @@ class FaceData:
     """Registered face stored in Qdrant."""
     id: str
     name: str
-    nim: str
+    nim: Optional[str] = None
     embedding: List[float] = field(default_factory=list)
 
     @classmethod
-    def create(cls, name: str, nim: str, embedding: List[float]) -> "FaceData":
+    def create(
+        cls, name: str, embedding: List[float], nim: Optional[str] = None
+    ) -> "FaceData":
         return cls(id=str(uuid.uuid4()), name=name, nim=nim, embedding=embedding)
 
     def to_payload(self) -> dict:
@@ -26,8 +28,8 @@ class FaceData:
 class RegisterFaceInput:
     """Input data for a single face registration."""
     name: str
-    nim: str
     image_base64: str
+    nim: Optional[str] = None
 
 
 @dataclass

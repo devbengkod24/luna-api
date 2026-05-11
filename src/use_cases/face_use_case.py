@@ -57,11 +57,14 @@ class RegisterFacesUseCase:
         embedding = detected[0].embedding
         if not embedding:
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Failed to extract embedding")
-        try:
-            existing = await self.face_service.get_by_nim(nim)
-        except Exception as e:
-            logger.error("Qdrant query error: %s", e, exc_info=True)
-            return FaceRegistrationResult(success=False, name=name, nim=nim, message="Storage query failed")
+
+        existing: Optional[FaceData] = None
+        if nim:
+            try:
+                existing = await self.face_service.get_by_nim(nim)
+            except Exception as e:
+                logger.error("Qdrant query error: %s", e, exc_info=True)
+                return FaceRegistrationResult(success=False, name=name, nim=nim, message="Storage query failed")
 
         if existing and skip_existing:
             return FaceRegistrationResult(

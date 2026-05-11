@@ -2,12 +2,13 @@
 
 Filename format:
   Nama_Nama__NIM.ext   → name="Nama Nama", nim="NIM"
-  Nama_Nama.ext        → name="Nama Nama", nim=""
+  Nama_Nama.ext        → name="Nama Nama", nim=None
 """
 
 import base64
 import logging
 from pathlib import Path
+from typing import Optional
 
 from src.domain.entities.face import RegisterFaceInput
 from src.ports.services import IFaceService
@@ -17,13 +18,14 @@ from src.use_cases.face_use_case import RegisterFacesUseCase
 logger = logging.getLogger(__name__)
 
 
-def _parse_filename(stem: str) -> tuple[str, str]:
-    """Parse stem into (name, nim). Uses '__' as separator."""
+def _parse_filename(stem: str) -> tuple[str, Optional[str]]:
+    """Parse stem into (name, nim). Uses '__' as separator. NIM is optional."""
     if "__" in stem:
-        name_part, nim = stem.split("__", 1)
+        name_part, nim_raw = stem.split("__", 1)
+        nim: Optional[str] = nim_raw.strip() or None
     else:
-        name_part, nim = stem, ""
-    return name_part.replace("_", " ").strip(), nim.strip()
+        name_part, nim = stem, None
+    return name_part.replace("_", " ").strip(), nim
 
 
 async def run(face_service: IFaceService, recognition: IFaceRecognitionService) -> None:

@@ -24,6 +24,10 @@ class IAgentService(ABC):
     async def generate_title(self, title_prompt: str) -> str:
         ...
 
+    @abstractmethod
+    async def preprocess_tts(self, text: str, system_prompt: str) -> str:
+        ...
+
 
 class IRAGService(ABC):
     """Interface for RAG retrieval and document indexing."""
