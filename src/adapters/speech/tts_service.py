@@ -1,4 +1,5 @@
 """Text-to-Speech adapter implementations."""
+
 import asyncio
 import base64
 import io
@@ -18,21 +19,21 @@ logger = logging.getLogger(__name__)
 
 class MMSTTSService(ITTSService):
     """Text-to-Speech service using Facebook MMS-TTS Indonesian model."""
-    
+
     MODEL_REPO = "facebook/mms-tts-ind"
-    
+
     def __init__(self):
         """Initialize the TTS adapter."""
         # Deteksi device (CUDA jika tersedia, fallback ke CPU)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Initializing Facebook MMS-TTS on device: {self.device}")
-        
+
         # Inisialisasi model dan tokenizer
         self.model = None
         self.tokenizer = None
         self.sr = None  # Sample rate
         self._load_model()
-    
+
     def _load_model(self):
         """Load the Facebook MMS-TTS Indonesian model."""
         try:
@@ -42,84 +43,86 @@ class MMSTTSService(ITTSService):
             # Load model dan tokenizer
             self.model = VitsModel.from_pretrained(self.MODEL_REPO)
             self.tokenizer = AutoTokenizer.from_pretrained(self.MODEL_REPO)
-            
+
             # Pindahkan model ke device yang sesuai
             self.model = self.model.to(self.device)
-            
+
             # Ambil sample rate dari konfigurasi model
             self.sr = self.model.config.sampling_rate
-            
+
             # Set model ke evaluation mode
             self.model.eval()
-            
+
             # Kosongkan cache GPU jika menggunakan CUDA
             if self.device == "cuda":
                 torch.cuda.empty_cache()
-            
-            logger.info(f"Facebook MMS-TTS model loaded successfully (sample rate: {self.sr} Hz)")
-            
+
+            logger.info(
+                f"Facebook MMS-TTS model loaded successfully (sample rate: {self.sr} Hz)"
+            )
+
         except Exception as e:
             logger.error(f"Failed to load TTS model: {e}")
             raise
-    
+
     def _audio_to_base64(self, audio_array: np.ndarray, sample_rate: int) -> str:
         """Convert audio numpy array to base64-encoded WAV string.
-        
+
         Args:
             audio_array: Audio data as numpy array
             sample_rate: Sample rate of the audio
-            
+
         Returns:
             Base64-encoded WAV audio string
         """
         # Konversi ke 16-bit PCM
         audio_int16 = (audio_array * 32767).astype(np.int16)
-        
+
         # Tulis ke buffer WAV
         buffer = io.BytesIO()
         wavfile.write(buffer, sample_rate, audio_int16)
         buffer.seek(0)
-        
+
         # Encode ke base64
-        audio_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+        audio_base64 = base64.b64encode(buffer.read()).decode("utf-8")
         return audio_base64
-    
+
     async def synthesize(self, text: str, character: int) -> str:
         """Synthesize text to speech audio.
-        
+
         Args:
             text: Text to synthesize in Indonesian
             character: Character ID (currently unused for MMS-TTS)
-            
+
         Returns:
             Base64-encoded WAV audio data
         """
         if not self.model or not self.tokenizer:
             raise RuntimeError("TTS model not initialized")
-        
+
         try:
             logger.info(f"Synthesizing text: {text[:50]}...")
-            
+
             # Tokenize input text
             inputs = self.tokenizer(text, return_tensors="pt")
-            
+
             # Pindahkan inputs ke device yang sama dengan model
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            
+
             # Generate audio waveform
             with torch.no_grad():
                 output = self.model(**inputs).waveform
-            
+
             # Konversi tensor ke numpy array
             # Output shape: [1, sequence_length], kita ambil [0]
             audio_numpy = output.squeeze().cpu().numpy()
-            
+
             # Konversi ke base64
             audio_base64 = self._audio_to_base64(audio_numpy, self.sr)
-            
+
             logger.info("Text synthesized successfully")
             return audio_base64
-            
+
         except Exception as e:
             logger.error(f"Failed to synthesize text: {e}")
             raise
@@ -149,6 +152,7 @@ class ChatterboxSTTSService(ITTSService):
         self.model = None
         self.sr: Optional[int] = None
         self._load_model()
+
     def _character_prompt_path(self, character: int) -> Optional[str]:
         """Resolve audio prompt path for a given character.
 
@@ -163,7 +167,6 @@ class ChatterboxSTTSService(ITTSService):
         path = os.path.join(self.voice_clone_dir, filename)
         return path if os.path.isfile(path) else None
 
-
     def _load_model(self) -> None:
         """Load base Chatterbox model and apply Indonesian fine-tune checkpoint."""
         try:
@@ -171,7 +174,7 @@ class ChatterboxSTTSService(ITTSService):
 
             from chatterbox.tts import ChatterboxTTS  # type: ignore
             import perth  # type: ignore
-           
+
             perth.PerthImplicitWatermarker = perth.DummyWatermarker
 
             self.model = ChatterboxTTS.from_pretrained(device=self.device)
@@ -278,7 +281,7 @@ class F5TTSIndonesianService(ITTSService):
         cfg_strength: float = 2.0,
         remove_silence: bool = False,
     ) -> None:
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = "cpu"
         self.voice_clone_dir = voice_clone_dir
         self.model_repo = model_repo
         self.model_name = model_name
@@ -336,7 +339,9 @@ class F5TTSIndonesianService(ITTSService):
         """
         candidates: list[str] = []
         try:
-            candidates.append(os.path.join(self.voice_clone_dir, f"{int(character)}.wav"))
+            candidates.append(
+                os.path.join(self.voice_clone_dir, f"{int(character)}.wav")
+            )
         except Exception:
             pass
 
@@ -373,10 +378,13 @@ class F5TTSIndonesianService(ITTSService):
         if audio.size == 0:
             raise ValueError("Generated empty audio.")
 
+        # audio = np.nan_to_num(audio, nan=0.0, posinf=1.0, neginf=-1.0)
+
         peak = float(np.max(np.abs(audio)))
         if peak > 1.0:
             audio = audio / peak
 
+        # audio = np.clip(audio, -1.0, 1.0)
         audio_int16 = (audio * 32767.0).astype(np.int16)
 
         buffer = io.BytesIO()
