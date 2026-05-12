@@ -70,7 +70,9 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
-    ollama_llm_model: str = Field(default="gpt-oss:120b-cloud", alias="OLLAMA_LLM_MODEL")
+    ollama_llm_model: str = Field(
+        default="gpt-oss:120b-cloud", alias="OLLAMA_LLM_MODEL"
+    )
     ollama_embedding_model: str = Field(
         default="embeddinggemma:latest", alias="OLLAMA_EMBEDDING_MODEL"
     )
@@ -84,7 +86,7 @@ class Settings(BaseSettings):
     ollama_repeat_penalty: float = Field(default=1.18, alias="OLLAMA_REPEAT_PENALTY")
     ollama_repeat_last_n: int = Field(default=64, alias="OLLAMA_REPEAT_LAST_N")
     ollama_num_batch: int = Field(default=128, alias="OLLAMA_NUM_BATCH")
-    
+
     gpu_device: int = Field(default=-1, alias="GPU_DEVICE")  # -1 for CPU, 0+ for GPU
 
     # Face Recognition (InsightFace)
@@ -108,7 +110,9 @@ class Settings(BaseSettings):
     persist_dir: str = "storage/index"
     rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
     rag_allowed_extensions: Set[str] = {".pdf", ".txt", ".docx", ".doc", ".md"}
-    rag_chunk_strategy: str = Field(default="semantic", alias="RAG_CHUNK_STRATEGY")  # "token" | "semantic"
+    rag_chunk_strategy: str = Field(
+        default="semantic", alias="RAG_CHUNK_STRATEGY"
+    )  # "token" | "semantic"
     rag_chunk_size: int = Field(default=512, alias="RAG_CHUNK_SIZE")
     rag_chunk_overlap: int = Field(default=50, alias="RAG_CHUNK_OVERLAP")
 
@@ -116,9 +120,15 @@ class Settings(BaseSettings):
     chat_max_prompt_length: int = 10000
     chat_max_audio_base64_size: int = 10 * 1024 * 1024  # 10MB
     chat_history_limit: int = Field(default=20, alias="CHAT_HISTORY_LIMIT")
-    sse_idle_timeout_seconds: float = Field(default=60.0, alias="SSE_IDLE_TIMEOUT_SECONDS")
-    agent_idle_timeout_seconds: float = Field(default=45.0, alias="AGENT_IDLE_TIMEOUT_SECONDS")
-    agent_tool_timeout_seconds: float = Field(default=20.0, alias="AGENT_TOOL_TIMEOUT_SECONDS")
+    sse_idle_timeout_seconds: float = Field(
+        default=60.0, alias="SSE_IDLE_TIMEOUT_SECONDS"
+    )
+    agent_idle_timeout_seconds: float = Field(
+        default=45.0, alias="AGENT_IDLE_TIMEOUT_SECONDS"
+    )
+    agent_tool_timeout_seconds: float = Field(
+        default=20.0, alias="AGENT_TOOL_TIMEOUT_SECONDS"
+    )
 
     # Emotion Detection
     enable_emotion_detection: bool = Field(
@@ -154,7 +164,7 @@ class Settings(BaseSettings):
 
     # Speech-to-Text (Faster Whisper)
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
-    whisper_model: str = Field(default="tiny", alias="WHISPER_MODEL")
+    whisper_model: str = Field(default="small", alias="WHISPER_MODEL")
     whisper_language: str = Field(default="id", alias="WHISPER_LANGUAGE")
     whisper_beam_size: int = Field(default=5, alias="WHISPER_BEAM_SIZE")
 

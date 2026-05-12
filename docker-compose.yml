@@ -108,7 +108,7 @@ services:
       TTS_PROVIDER: f5
 
       # Speech / TTS
-      WHISPER_MODEL: tiny
+      WHISPER_MODEL: small
 
     volumes:
       # - ./src:/app/src

@@ -7,6 +7,7 @@ from src.shared.constants import Character
 
 class UserContextSchema(BaseModel):
     """User context schema."""
+
     emotion: str | None = Field(
         default=None,
         description="User emotion state (null if neutral/no emotion detected)",
@@ -17,18 +18,19 @@ class UserContextSchema(BaseModel):
         default=None,
         description="User name",
         min_length=1,
-        max_length=20,
+        max_length=100,
     )
     nim: str | None = Field(
         default=None,
         description="User NIM",
-        min_length=14,
-        max_length=14,
+        min_length=1,
+        max_length=20,
     )
 
 
 class ResponseTextRequest(BaseModel):
     """Request model for text-based response."""
+
     conversation_id: str | None = None
     user_input: str = Field(
         ...,
@@ -49,7 +51,7 @@ class ResponseTextRequest(BaseModel):
         description="Enable text-to-speech synthesis for the response",
     )
 
-    @field_validator('user_input')
+    @field_validator("user_input")
     @classmethod
     def validate_prompt(cls, v: str) -> str:
         if not v or not v.strip():
@@ -59,6 +61,7 @@ class ResponseTextRequest(BaseModel):
 
 class ResponseAudioRequest(BaseModel):
     """Request model for audio-based response."""
+
     conversation_id: str | None = None
     audio_input: str = Field(
         ...,
@@ -79,7 +82,7 @@ class ResponseAudioRequest(BaseModel):
         description="Enable text-to-speech synthesis for the response",
     )
 
-    @field_validator('audio_input')
+    @field_validator("audio_input")
     @classmethod
     def validate_audio_input(cls, v: str) -> str:
         if not v or not v.strip():
