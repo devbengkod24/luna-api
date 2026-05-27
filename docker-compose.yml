@@ -98,12 +98,13 @@ services:
       MINIO_SECRET_KEY: minioadmin
 
       # GPU (-1 CPU, 0+ GPU)
-      GPU_DEVICE: 0
+      GPU_DEVICE: -1
 
       # Face Recognition (InsightFace)
       ENABLE_FACE_RECOGNITION: true
       ENABLE_EMOTION_DETECTION: true
-      FACE_RECOGNITION_CTX_ID: 0 # -1 CPU, 0+ GPU
+      ENABLE_TTS: False
+      FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
 
       TTS_PROVIDER: f5
 

@@ -162,11 +162,51 @@ class Settings(BaseSettings):
         default=5, alias="VISION_MAX_RECOGNITION_ATTEMPTS"
     )
 
+    # Vision / WebSocket optimizations
+    vision_target_latency_ms: float = Field(
+        default=150.0, alias="VISION_TARGET_LATENCY_MS"
+    )
+    vision_latency_window: int = Field(default=10, alias="VISION_LATENCY_WINDOW")
+    vision_throttle_min_fps: int = Field(default=5, alias="VISION_THROTTLE_MIN_FPS")
+    vision_throttle_max_fps: int = Field(default=30, alias="VISION_THROTTLE_MAX_FPS")
+    vision_throttle_emit_interval: float = Field(
+        default=2.0, alias="VISION_THROTTLE_EMIT_INTERVAL"
+    )
+
     # Speech-to-Text (Faster Whisper)
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
-    whisper_model: str = Field(default="small", alias="WHISPER_MODEL")
+    whisper_model: str = Field(default="large-v3", alias="WHISPER_MODEL")
     whisper_language: str = Field(default="id", alias="WHISPER_LANGUAGE")
     whisper_beam_size: int = Field(default=5, alias="WHISPER_BEAM_SIZE")
+    # Live voice path is latency-critical and utterances are short commands —
+    # greedy decoding (beam=1) shaves a large chunk off per-turn STT time with
+    # negligible accuracy loss. Chat/file uploads keep the higher-quality beam
+    # via `whisper_beam_size`.
+    whisper_voice_beam_size: int = Field(default=5, alias="WHISPER_VOICE_BEAM_SIZE")
+
+    # Voice WebSocket / VAD
+    enable_voice_ws: bool = Field(default=True, alias="ENABLE_VOICE_WS")
+    # "silero" (neural, robust in noise) or "webrtc" (energy-based fallback).
+    # Factory in dependencies.py auto-falls back to webrtc if silero load fails.
+    vad_provider: str = Field(default="silero", alias="VAD_PROVIDER")
+    silero_vad_threshold: float = Field(default=0.5, alias="SILERO_VAD_THRESHOLD")
+    voice_vad_aggressiveness: int = Field(default=2, alias="VOICE_VAD_AGGRESSIVENESS")
+    voice_vad_sample_rate: int = Field(default=16000, alias="VOICE_VAD_SAMPLE_RATE")
+    voice_vad_frame_ms: int = Field(default=30, alias="VOICE_VAD_FRAME_MS")
+    voice_speech_start_frames: int = Field(
+        default=3, alias="VOICE_SPEECH_START_FRAMES"
+    )  # consecutive speech frames to enter SPEAKING (~90ms)
+    voice_speech_end_frames: int = Field(
+        default=20, alias="VOICE_SPEECH_END_FRAMES"
+    )  # consecutive silence frames to end utterance (~600ms). Lower = snappier
+    # turn-taking but risks cutting off hesitant speakers; raise toward 25 (~750ms)
+    # if the kiosk audience pauses mid-sentence a lot.
+    voice_prebuffer_frames: int = Field(
+        default=7, alias="VOICE_PREBUFFER_FRAMES"
+    )  # frames retained before speech_start (~210ms)
+    voice_max_utterance_seconds: float = Field(
+        default=30.0, alias="VOICE_MAX_UTTERANCE_SECONDS"
+    )
 
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
