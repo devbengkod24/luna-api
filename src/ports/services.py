@@ -1,10 +1,11 @@
 """Service port interfaces (external services / non-DB adapters)."""
 
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+from typing import AsyncGenerator, List, Optional, Tuple
 
-from src.domain.entities import UserContext
+from src.domain.entities import Message, UserContext
 from src.domain.entities.face import FaceData
+from src.domain.events import StreamEvent
 
 
 class IAgentService(ABC):
@@ -14,10 +15,10 @@ class IAgentService(ABC):
     async def generate_stream(
         self,
         user_input: str,
-        messages: List[Dict[str, str]],
+        messages: List[Message],
         context: Optional[UserContext] = None,
         system_prompt: Optional[str] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[StreamEvent, None]:
         ...
 
     @abstractmethod
@@ -130,6 +131,12 @@ class ISTTService(ABC):
 
     @abstractmethod
     async def transcribe(self, speech_base64: str) -> str:
+        """Transcribe a base64-encoded audio file (WAV/MP3/OGG/etc)."""
+        ...
+
+    @abstractmethod
+    async def transcribe_pcm(self, pcm16: bytes, sample_rate: int) -> str:
+        """Transcribe raw 16-bit mono PCM directly. Skips WAV/base64 wrapping."""
         ...
 
 

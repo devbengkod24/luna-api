@@ -8,9 +8,11 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from starlette.requests import Request
 
-from src.drivers import dependencies
-from src.domain.entities import UserContext
 from src.config import settings
+from src.domain.entities import UserContext
+from src.domain.events import ErrorEvent, StreamEvent
+from src.drivers import dependencies
+from src.drivers.rest.presenters import stream_event_to_dict
 from src.drivers.rest.schemas import (
     ResponseTextRequest,
     ResponseAudioRequest,
@@ -29,7 +31,9 @@ SSE_HEADERS = {
     "Connection": "keep-alive",
 }
 
-async def _sse_event_stream_with_idle_timeout(source: AsyncIterator[dict]) -> AsyncIterator[str]:
+async def _sse_event_stream_with_idle_timeout(
+    source: AsyncIterator[StreamEvent],
+) -> AsyncIterator[str]:
     """Wrap event generator with idle timeout to avoid hanging streams."""
     try:
         while True:
@@ -39,9 +43,13 @@ async def _sse_event_stream_with_idle_timeout(source: AsyncIterator[dict]) -> As
             except StopAsyncIteration:
                 return
             except TimeoutError:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'Stream timeout'})}\n\n"
+                yield (
+                    "data: "
+                    + json.dumps(stream_event_to_dict(ErrorEvent(content="Stream timeout")))
+                    + "\n\n"
+                )
                 return
-            yield f"data: {json.dumps(event)}\n\n"
+            yield f"data: {json.dumps(stream_event_to_dict(event))}\n\n"
     except asyncio.CancelledError:
         # client disconnected
         return

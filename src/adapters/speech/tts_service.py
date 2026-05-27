@@ -12,9 +12,23 @@ import numpy as np
 import torch
 from scipy.io import wavfile
 
+from src.adapters.speech.tts_normalizer import normalize_for_tts
 from src.ports.services import ITTSService
+from src.shared.constants import Character
 
 logger = logging.getLogger(__name__)
+
+
+def _character_slug(character: int) -> str:
+    """Map a character ID to its filesystem slug (luna, vendra, ...).
+
+    Falls back to "default" if the ID is outside the Character enum so callers
+    can still look up `default.wav` / `default.txt` as a safety net.
+    """
+    try:
+        return Character(int(character)).slug
+    except (ValueError, TypeError):
+        return "default"
 
 
 class MMSTTSService(ITTSService):
@@ -100,6 +114,8 @@ class MMSTTSService(ITTSService):
         if not self.model or not self.tokenizer:
             raise RuntimeError("TTS model not initialized")
 
+        text = normalize_for_tts(text)
+
         try:
             logger.info(f"Synthesizing text: {text[:50]}...")
 
@@ -156,15 +172,11 @@ class ChatterboxSTTSService(ITTSService):
     def _character_prompt_path(self, character: int) -> Optional[str]:
         """Resolve audio prompt path for a given character.
 
-        Convention:
-        - `storage/voice/0.wav` for Character (0)
-        - `storage/voice/1.wav` for Character (1)
+        Convention: `storage/voice/{slug}.wav` where slug is the lowercase
+        character name (e.g. `luna.wav`, `vendra.wav`).
         """
-        try:
-            filename = f"{int(character)}.wav"
-        except Exception:
-            return None
-        path = os.path.join(self.voice_clone_dir, filename)
+        slug = _character_slug(character)
+        path = os.path.join(self.voice_clone_dir, f"{slug}.wav")
         return path if os.path.isfile(path) else None
 
     def _load_model(self) -> None:
@@ -234,6 +246,8 @@ class ChatterboxSTTSService(ITTSService):
     async def synthesize(self, text: str, character: int) -> str:
         if self.model is None or self.sr is None:
             raise RuntimeError("Chatterbox TTS model not initialized")
+
+        text = normalize_for_tts(text)
 
         try:
             logger.info("Chatterbox synthesizing text: %s...", (text or "")[:50])
@@ -333,32 +347,22 @@ class F5TTSIndonesianService(ITTSService):
     def _character_prompt_path(self, character: int) -> str:
         """Resolve the reference audio used by F5-TTS for voice conditioning.
 
-        Convention:
-        - `storage/voice/{character}.wav` for each character
-        - `storage/voice/default.wav` or `storage/voice/0.wav` as fallback
+        Convention: `storage/voice/{slug}.wav` (e.g. `luna.wav`), with
+        `default.wav` as a last-resort fallback.
         """
-        candidates: list[str] = []
-        try:
-            candidates.append(
-                os.path.join(self.voice_clone_dir, f"{int(character)}.wav")
-            )
-        except Exception:
-            pass
-
-        candidates.extend(
-            [
-                os.path.join(self.voice_clone_dir, "default.wav"),
-                os.path.join(self.voice_clone_dir, "0.wav"),
-            ]
-        )
+        slug = _character_slug(character)
+        candidates = [
+            os.path.join(self.voice_clone_dir, f"{slug}.wav"),
+            os.path.join(self.voice_clone_dir, "default.wav"),
+        ]
 
         for path in candidates:
             if os.path.isfile(path):
                 return path
 
         raise FileNotFoundError(
-            "F5-TTS requires a reference WAV file in storage/voice "
-            "(for example `0.wav` or `default.wav`)."
+            f"F5-TTS requires a reference WAV file in {self.voice_clone_dir} "
+            f"(expected `{slug}.wav` or `default.wav`)."
         )
 
     def _reference_text_for_prompt(self, ref_audio_path: str) -> str:
@@ -378,13 +382,10 @@ class F5TTSIndonesianService(ITTSService):
         if audio.size == 0:
             raise ValueError("Generated empty audio.")
 
-        # audio = np.nan_to_num(audio, nan=0.0, posinf=1.0, neginf=-1.0)
-
         peak = float(np.max(np.abs(audio)))
         if peak > 1.0:
             audio = audio / peak
 
-        # audio = np.clip(audio, -1.0, 1.0)
         audio_int16 = (audio * 32767.0).astype(np.int16)
 
         buffer = io.BytesIO()
@@ -414,6 +415,7 @@ class F5TTSIndonesianService(ITTSService):
         return self._audio_to_base64(np.squeeze(wav), int(sample_rate))
 
     async def synthesize(self, text: str, character: int) -> str:
+        text = normalize_for_tts(text)
         if not text or not text.strip():
             raise ValueError("Text to synthesize must not be empty.")
 

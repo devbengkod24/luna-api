@@ -1,324 +1,105 @@
 """Response use cases — text and speech AI response with streaming."""
 
 import asyncio
-import json
 import logging
-from functools import lru_cache
-from typing import AsyncGenerator, Optional
+import re
+from typing import AsyncGenerator, Awaitable, Callable, List, Optional, Tuple
 
-from src.shared.constants import Character, MessageType
+from src.config import settings
 from src.domain.entities import (
-    UserContext,
-    UserMessage,
     Conversation,
     Message,
-    AIMessage,
-    ToolMessage,
-    ToolsCall,
-    Function,
-    ResponseMetadata,
-    UsageMetadata,
+    UserContext,
+    UserMessage,
 )
-
-from src.ports.services import (
-    ITTSService,
-    IAgentService,
-    ISTTService,
+from src.domain.events import (
+    AssistantEvent,
+    AudioEvent,
+    DoneEvent,
+    ErrorEvent,
+    LogEvent,
+    StreamEvent,
+    TokenEvent,
+    ToolResultEvent,
+    TranscriptEvent,
 )
-from src.ports.repositories import (
-    IConversationRepository,
-    IMessageRepository,
-)
-from src.config import settings
+from src.ports.prompts import IPromptRepository
+from src.ports.repositories import IConversationRepository, IMessageRepository
+from src.ports.services import IAgentService, ISTTService, ITTSService
+from src.shared.constants import Character
 
 logger = logging.getLogger(__name__)
 
+# A title runner generates+persists a conversation title using its OWN db
+# session, detached from the request. Injected by the driver/DI layer so this
+# use case stays free of any session/infra knowledge.
+TitleRunner = Callable[[str, str], Awaitable[None]]
 
-@lru_cache(maxsize=None)
-def _load_prompt_templates(path: str) -> dict[str, str]:
-    from pathlib import Path
-
-    base_dir = Path(path)
-    base_content = (base_dir / "base.txt").read_text(encoding="utf-8")
-
-    char_templates: dict[str, str] = {"base": base_content, "vendra": "", "shazia": ""}
-    vendra_path = base_dir / "vendra.txt"
-    if vendra_path.exists():
-        char_templates["vendra"] = vendra_path.read_text(encoding="utf-8")
-
-    shazia_path = base_dir / "shazia.txt"
-    if shazia_path.exists():
-        char_templates["shazia"] = shazia_path.read_text(encoding="utf-8")
-
-    return char_templates
+# Hold references to fire-and-forget tasks so the event loop doesn't garbage-
+# collect them mid-flight; they self-remove on completion.
+_background_tasks: set[asyncio.Task] = set()
 
 
-@lru_cache(maxsize=None)
-def load_tts_system_prompt(path: str = "src/prompts/text-to-speech.txt") -> str:
-    """Load the TTS preprocessing system prompt."""
-    try:
-        from pathlib import Path
-
-        prompt = Path(path).read_text(encoding="utf-8").strip()
-        if prompt:
-            return prompt
-    except Exception:
-        logger.exception("Failed to load TTS system prompt")
-
-    return (
-        "Rewrite the text into concise, natural Indonesian that is easy to read "
-        "aloud by a TTS model. Preserve meaning and output only the speakable text."
-    )
+def _spawn_background(coro: Awaitable[None]) -> None:
+    task = asyncio.ensure_future(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
-def load_system_prompt(
-    character: Character,
-    context: "UserContext | None" = None,
-    path: str = "src/prompts",
-) -> str:
-    """Load dan render system prompt dengan context injection."""
-    try:
-        templates = _load_prompt_templates(path)
+class GenerateTitleUseCase:
+    """Generate and persist a title for a brand-new conversation, asynchronously."""
 
-        if character == Character.VENDRA:
-            char_content = templates.get("vendra", "")
-        elif character == Character.SHAZIA:
-            char_content = templates.get("shazia", "")
-        else:
-            char_content = ""
+    def __init__(
+        self,
+        conversation_repo: IConversationRepository,
+        agent_service: IAgentService,
+        prompt_repo: IPromptRepository,
+    ):
+        self.conversation_repo = conversation_repo
+        self.agent_service = agent_service
+        self.prompt_repo = prompt_repo
 
-        name = getattr(context, "name", None) or "Unknown"
-        nim = getattr(context, "nim", None) or "Unknown"
-        emotion = getattr(context, "emotion", None) or "neutral"
-
-        _char_name_map = {
-            Character.VENDRA: "Vendra",
-            Character.SHAZIA: "Shazia",
-        }
-        char_label = _char_name_map.get(character, character.name.capitalize())
-
-        combined = templates["base"].format(
-            character=char_label,
-            name=name,
-            nim=nim,
-            emotion=emotion,
-            CHARACTER=char_content,
-        )
-        return combined.strip()
-    except Exception:
-        logger.exception("Failed to load system prompt templates")
-        return "You are a helpful AI assistant."
-
-
-def build_title_prompt(user_input: str) -> str:
-    return f"""Buatkan judul singkat (maksimal 5 kata) dalam Bahasa Indonesia untuk percakapan yang dimulai dengan pesan berikut:
-
-    "{user_input}"
-
-    Jawab hanya dengan judul saja, tanpa tanda kutip atau penjelasan tambahan."""
-
-
-def _message_content_to_agent_dict(content: UserMessage | ToolMessage | AIMessage) -> dict:
-    """Convert domain message content to dict format expected by agent."""
-    if isinstance(content, UserMessage):
-        return {"type": MessageType.USER.value, "content": content.content}
-    if isinstance(content, ToolMessage):
-        return {
-            "type": MessageType.TOOL.value,
-            "content": content.content,
-            "tool_call_id": content.tool_call_id,
-            "name": content.name,
-        }
-    if isinstance(content, AIMessage):
-        tool_calls = [
-            {
-                "id": tc.id,
-                "type": tc.type,
-                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-            }
-            for tc in (content.additional_kwargs or [])
-        ]
-        return {
-            "type": MessageType.ASSISTANT.value,
-            "content": content.content,
-            "additional_kwargs": {"tool_calls": tool_calls},
-        }
-    return {"type": MessageType.USER.value, "content": ""}
-
-
-async def _yield_heartbeats_until_done(
-    task: asyncio.Task,
-    message: str,
-) -> AsyncGenerator[dict, None]:
-    """Yield periodic log events while a long-running task is still active."""
-    heartbeat_interval = max(1.0, min(10.0, settings.sse_idle_timeout_seconds / 4))
-    elapsed = 0.0
-    while not task.done():
-        done, _ = await asyncio.wait({task}, timeout=heartbeat_interval)
-        if not done:
-            elapsed += heartbeat_interval
-            yield {"type": "log", "content": f"{message} ({int(elapsed)}s)"}
-
-
-async def _stream_conversation(
-    conversation_repo: IConversationRepository,
-    message_repo: IMessageRepository,
-    agent_service: IAgentService,
-    tts_service: ITTSService,
-    conversation_id: Optional[str],
-    user_input: str,
-    character: Character,
-    context: UserContext | None,
-    enable_tts: bool,
-) -> AsyncGenerator[dict, None]:
-    """Core streaming logic shared by text and speech use cases."""
-    if conversation_id:
-        conversation = await conversation_repo.get_by_id(conversation_id)
-        if not conversation:
-            yield {"type": "error", "content": "Conversation not found"}
-            return
-    else:
-        yield {"type": "log", "content": "Membuat sesi baru..."}
-        conversation = await conversation_repo.create(Conversation(title="Obrolan Baru"))
-        yield {"type": "log", "content": "Sesi dibuat: Obrolan Baru"}
-
-        async def _generate_and_update_title() -> None:
-            try:
-                title_prompt = build_title_prompt(user_input)
-                title = await agent_service.generate_title(title_prompt)
-                if title and title.strip():
-                    await conversation_repo.update_title(conversation.id, title.strip())
-            except Exception:
-                logger.exception("Failed to generate/update conversation title (conversation_id=%s)", conversation.id)
-
-        asyncio.create_task(_generate_and_update_title())
-
-    system_prompt = load_system_prompt(character, context)
-
-    yield {"type": "log", "content": "Menganalisis konteks..."}
-    session_messages = await message_repo.get_recent_by_conversation_id(
-        conversation.id, settings.chat_history_limit
-    )
-    messages_for_agent = [_message_content_to_agent_dict(m.body) for m in session_messages]
-
-    # Persist current user message AFTER loading history, to avoid duplicating
-    # user_input in the LLM context (agent already receives user_input separately).
-    await message_repo.create(
-        Message(
-            conversation_id=conversation.id,
-            character=character,
-            body=UserMessage(content=user_input),
-            context=context if context else None,
-        )
-    )
-
-    full_response = ""
-    try:
-        gen = agent_service.generate_stream(
-            user_input=user_input,
-            messages=messages_for_agent,
-            context=context,
-            system_prompt=system_prompt,
-        )
-        while True:
-            try:
-                async with asyncio.timeout(settings.agent_idle_timeout_seconds):
-                    event = await anext(gen)
-            except StopAsyncIteration:
-                break
-            except TimeoutError:
-                yield {"type": "error", "content": "Agent timeout"}
-                return
-
-            if event.get("type") == "token":
-                full_response += event.get("content", "")
-            yield event
-
-            if event.get("type") == "assistant":
-                rm = event.get("response_metadata") or {}
-                um = event.get("usage_metadata") or {}
-                tool_calls_raw = (event.get("additional_kwargs") or {}).get("tool_calls", [])
-                tool_calls = []
-                for tool in tool_calls_raw:
-                    fn = tool.get("function") or {}
-                    args = fn.get("arguments", "")
-                    if isinstance(args, dict):
-                        args = json.dumps(args)
-                    tool_calls.append(
-                        ToolsCall(
-                            id=tool.get("id", ""),
-                            type=tool.get("type", ""),
-                            function=Function(
-                                name=fn.get("name", ""),
-                                arguments=args if isinstance(args, str) else json.dumps(args),
-                            ),
-                        )
-                    )
-                await message_repo.create(
-                    Message(
-                        conversation_id=conversation.id,
-                        character=character,
-                        body=AIMessage(
-                            content=event.get("content", ""),
-                            additional_kwargs=tool_calls,
-                            response_metadata=ResponseMetadata(
-                                model=rm.get("model", ""),
-                                done_reason=rm.get("done_reason", ""),
-                            ),
-                            usage_metadata=UsageMetadata(
-                                input_tokens=um.get("input_tokens", 0),
-                                output_tokens=um.get("output_tokens", 0),
-                                total_tokens=um.get("total_tokens", 0),
-                            ),
-                        ),
-                        context=context if context else None,
-                    )
-                )
-            elif event.get("type") == "tool":
-                await message_repo.create(
-                    Message(
-                        conversation_id=conversation.id,
-                        character=character,
-                        body=ToolMessage(
-                            content=event.get("content", ""),
-                            tool_call_id=event.get("tool_call_id", ""),
-                            name=event.get("name", ""),
-                        ),
-                        context=context if context else None,
-                    )
-                )
-    except Exception as e:
-        logger.exception("Response streaming failed (conversation_id=%s)", conversation.id)
-        yield {"type": "error", "content": "Internal server error"}
-        return
-
-    if enable_tts and tts_service and full_response:
+    async def execute(self, conversation_id: str, user_input: str) -> None:
         try:
-            yield {"type": "log", "content": "Mensintesis speech..."}
-            tts_system_prompt = load_tts_system_prompt()
-            preprocess_task = asyncio.create_task(
-                agent_service.preprocess_tts(full_response, tts_system_prompt)
+            title_prompt = self.prompt_repo.build_title_prompt(user_input)
+            title = await self.agent_service.generate_title(title_prompt)
+            if title and title.strip():
+                await self.conversation_repo.update_title(conversation_id, title.strip())
+        except Exception:
+            logger.exception(
+                "Failed to generate/update conversation title (conversation_id=%s)",
+                conversation_id,
             )
-            async for heartbeat in _yield_heartbeats_until_done(
-                preprocess_task, "Menyiapkan teks untuk speech..."
-            ):
-                yield heartbeat
-            preprocessed_response = preprocess_task.result()
 
-            synth_task = asyncio.create_task(
-                tts_service.synthesize(preprocessed_response, character)
-            )
-            async for heartbeat in _yield_heartbeats_until_done(
-                synth_task, "Mensintesis speech..."
-            ):
-                yield heartbeat
-            audio_base64 = synth_task.result()
-            yield {"type": "audio", "content": audio_base64}
-        except Exception as e:
-            logger.warning("TTS synth failed (conversation_id=%s): %s", conversation.id, e)
-            yield {"type": "log", "content": "Warning: Failed to synthesize speech"}
 
-    yield {"type": "done", "conversation_id": conversation.id}
+class SynthesizeTtsUseCase:
+    """Preprocess assistant text and synthesize speech via TTS."""
+
+    def __init__(
+        self,
+        agent_service: IAgentService,
+        tts_service: ITTSService,
+        prompt_repo: IPromptRepository,
+    ):
+        self.agent_service = agent_service
+        self.tts_service = tts_service
+        self.prompt_repo = prompt_repo
+
+    async def synthesize_chunk(
+        self, text: str, character: Character
+    ) -> Optional[str]:
+        """Preprocess + synthesize a single text chunk (e.g. one sentence).
+
+        Returns base64-encoded WAV, or None if the chunk produced no speakable
+        text. Used by the streaming pipeline to emit audio sentence-by-sentence
+        instead of waiting for the whole reply.
+        """
+        if not text or not text.strip():
+            return None
+
+        # Normalization is deterministic inside the TTS adapter (tts_normalizer);
+        # no LLM preprocessing — that cost a cloud round-trip per sentence.
+        return await self.tts_service.synthesize(text, character)
 
 
 class ResponseTextUseCase:
@@ -330,11 +111,18 @@ class ResponseTextUseCase:
         message_repo: IMessageRepository,
         agent_service: IAgentService,
         tts_service: ITTSService,
+        prompt_repo: IPromptRepository,
+        title_runner: Optional[TitleRunner] = None,
     ):
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
         self.agent_service = agent_service
-        self.tts_service = tts_service
+        self.prompt_repo = prompt_repo
+        self.title_runner = title_runner
+        self.title_use_case = GenerateTitleUseCase(
+            conversation_repo, agent_service, prompt_repo
+        )
+        self.tts_use_case = SynthesizeTtsUseCase(agent_service, tts_service, prompt_repo)
 
     async def execute(
         self,
@@ -343,17 +131,20 @@ class ResponseTextUseCase:
         character: Character,
         context: UserContext | None,
         enable_tts: bool = True,
-    ) -> AsyncGenerator[dict, None]:
+    ) -> AsyncGenerator[StreamEvent, None]:
         async for event in _stream_conversation(
-            self.conversation_repo,
-            self.message_repo,
-            self.agent_service,
-            self.tts_service,
-            conversation_id,
-            user_input,
-            character,
-            context,
-            enable_tts,
+            conversation_repo=self.conversation_repo,
+            message_repo=self.message_repo,
+            agent_service=self.agent_service,
+            tts_use_case=self.tts_use_case,
+            title_use_case=self.title_use_case,
+            title_runner=self.title_runner,
+            prompt_repo=self.prompt_repo,
+            conversation_id=conversation_id,
+            user_input=user_input,
+            character=character,
+            context=context,
+            enable_tts=enable_tts,
         ):
             yield event
 
@@ -368,12 +159,19 @@ class ResponseSpeechUseCase:
         agent_service: IAgentService,
         tts_service: ITTSService,
         stt_service: ISTTService,
+        prompt_repo: IPromptRepository,
+        title_runner: Optional[TitleRunner] = None,
     ):
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
         self.agent_service = agent_service
-        self.tts_service = tts_service
         self.stt_service = stt_service
+        self.prompt_repo = prompt_repo
+        self.title_runner = title_runner
+        self.title_use_case = GenerateTitleUseCase(
+            conversation_repo, agent_service, prompt_repo
+        )
+        self.tts_use_case = SynthesizeTtsUseCase(agent_service, tts_service, prompt_repo)
 
     async def execute(
         self,
@@ -382,20 +180,247 @@ class ResponseSpeechUseCase:
         character: Character,
         context: UserContext | None,
         enable_tts: bool = True,
-    ) -> AsyncGenerator[dict, None]:
-        yield {"type": "log", "content": "Mentranskripsi speech..."}
+    ) -> AsyncGenerator[StreamEvent, None]:
+        yield LogEvent(content="Mentranskripsi speech...")
         transcript = await self.stt_service.transcribe(speech_base64)
-        yield {"type": "transcript", "content": transcript}
+        yield TranscriptEvent(content=transcript)
 
         async for event in _stream_conversation(
-            self.conversation_repo,
-            self.message_repo,
-            self.agent_service,
-            self.tts_service,
-            conversation_id,
-            transcript,
-            character,
-            context,
-            enable_tts,
+            conversation_repo=self.conversation_repo,
+            message_repo=self.message_repo,
+            agent_service=self.agent_service,
+            tts_use_case=self.tts_use_case,
+            title_use_case=self.title_use_case,
+            title_runner=self.title_runner,
+            prompt_repo=self.prompt_repo,
+            conversation_id=conversation_id,
+            user_input=transcript,
+            character=character,
+            context=context,
+            enable_tts=enable_tts,
         ):
             yield event
+
+
+# Sentence-boundary matcher: a run of non-terminators ending in ., !, ?, or \n.
+_SENTENCE_RE = re.compile(r"[^.!?\n]*[.!?\n]+")
+# Force-flush a terminator-free buffer this long so a monologue still starts
+# speaking instead of stalling.
+_TTS_FORCE_FLUSH_CHARS = 220
+
+
+def _drain_sentences(buffer: str) -> Tuple[List[str], str]:
+    """Pull complete sentences out of an accumulating token buffer.
+
+    Returns (complete_sentences, remainder). The remainder is the trailing
+    partial sentence still being streamed; the caller keeps accumulating into it.
+    """
+    sentences: List[str] = []
+    cut = 0
+    for match in _SENTENCE_RE.finditer(buffer):
+        chunk = match.group(0).strip()
+        if chunk:
+            sentences.append(chunk)
+        cut = match.end()
+    remainder = buffer[cut:]
+    if len(remainder) >= _TTS_FORCE_FLUSH_CHARS:
+        tail = remainder.strip()
+        if tail:
+            sentences.append(tail)
+        remainder = ""
+    return sentences, remainder
+
+
+async def _stream_conversation(
+    *,
+    conversation_repo: IConversationRepository,
+    message_repo: IMessageRepository,
+    agent_service: IAgentService,
+    tts_use_case: SynthesizeTtsUseCase,
+    title_use_case: GenerateTitleUseCase,
+    title_runner: Optional[TitleRunner],
+    prompt_repo: IPromptRepository,
+    conversation_id: Optional[str],
+    user_input: str,
+    character: Character,
+    context: UserContext | None,
+    enable_tts: bool,
+) -> AsyncGenerator[StreamEvent, None]:
+    """Core streaming logic shared by text and speech use cases.
+
+    The LLM token stream and TTS synthesis run concurrently: as the agent emits
+    tokens, complete sentences are handed to a TTS worker that synthesizes them
+    one at a time (preserving order) while the model keeps generating. Audio for
+    the first sentence therefore starts playing well before the full reply is
+    written — the dominant latency win over synthesizing the whole reply at the
+    end. Both the voice WS and chat SSE paths flow through here.
+    """
+    conversation = await _resolve_conversation(conversation_repo, conversation_id)
+    if conversation is None:
+        yield ErrorEvent(content="Conversation not found")
+        return
+
+    if conversation_id is None:
+        yield LogEvent(content="Membuat sesi baru...")
+        yield LogEvent(content="Sesi dibuat: Obrolan Baru")
+        # Title generation runs detached. The injected runner uses its OWN db
+        # session; sharing the request session races with the persistence below.
+        if title_runner is not None:
+            _spawn_background(title_runner(conversation.id, user_input))
+        else:
+            _spawn_background(title_use_case.execute(conversation.id, user_input))
+
+    system_prompt = prompt_repo.get_system_prompt(character, context)
+
+    yield LogEvent(content="Menganalisis konteks...")
+    history = await message_repo.get_recent_by_conversation_id(
+        conversation.id, settings.chat_history_limit
+    )
+
+    # Persist current user message AFTER loading history to avoid duplicating
+    # user_input in the LLM context (agent already receives user_input separately).
+    await message_repo.create(
+        Message(
+            conversation_id=conversation.id,
+            character=character,
+            body=UserMessage(content=user_input),
+            context=context,
+        )
+    )
+
+    # LLM producer and TTS worker both feed one ordered output queue, each
+    # posting a sentinel when done; the consumer drains until all sentinels seen.
+    out_q: asyncio.Queue = asyncio.Queue()
+    sentence_q: asyncio.Queue = asyncio.Queue()
+    sentinel = object()
+
+    async def _tts_worker() -> None:
+        try:
+            while True:
+                text = await sentence_q.get()
+                if text is None:  # producer finished feeding sentences
+                    return
+                try:
+                    audio_b64 = await tts_use_case.synthesize_chunk(text, character)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning(
+                        "Chunk TTS failed (conversation_id=%s): %s", conversation.id, e
+                    )
+                    continue
+                if audio_b64:
+                    await out_q.put(AudioEvent(content=audio_b64))
+        finally:
+            await out_q.put(sentinel)
+
+    async def _llm_producer() -> None:
+        tts_buffer = ""
+        try:
+            gen = agent_service.generate_stream(
+                user_input=user_input,
+                messages=history,
+                context=context,
+                system_prompt=system_prompt,
+            )
+            while True:
+                try:
+                    async with asyncio.timeout(settings.agent_idle_timeout_seconds):
+                        event = await anext(gen)
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    await out_q.put(ErrorEvent(content="Agent timeout"))
+                    return
+
+                await out_q.put(event)
+
+                if isinstance(event, TokenEvent):
+                    if enable_tts and event.content:
+                        tts_buffer += event.content
+                        sentences, tts_buffer = _drain_sentences(tts_buffer)
+                        for sentence in sentences:
+                            await sentence_q.put(sentence)
+                elif isinstance(event, AssistantEvent):
+                    await message_repo.create(
+                        Message(
+                            conversation_id=conversation.id,
+                            character=character,
+                            body=event.message,
+                            context=context,
+                        )
+                    )
+                elif isinstance(event, ToolResultEvent):
+                    await message_repo.create(
+                        Message(
+                            conversation_id=conversation.id,
+                            character=character,
+                            body=_tool_event_to_message_body(event),
+                            context=context,
+                        )
+                    )
+                    # Drop any pre-tool buffer so only the final post-tool answer
+                    # is spoken (pre-tool assistant text is typically empty).
+                    tts_buffer = ""
+
+            # Flush the trailing partial sentence once the stream ends.
+            if enable_tts:
+                tail = tts_buffer.strip()
+                if tail:
+                    await sentence_q.put(tail)
+        except Exception:
+            logger.exception(
+                "Response streaming failed (conversation_id=%s)", conversation.id
+            )
+            await out_q.put(ErrorEvent(content="Internal server error"))
+        finally:
+            if enable_tts:
+                await sentence_q.put(None)  # signal the worker to stop
+            await out_q.put(sentinel)
+
+    producers = [asyncio.create_task(_llm_producer(), name="voice-llm-producer")]
+    if enable_tts:
+        producers.append(asyncio.create_task(_tts_worker(), name="voice-tts-worker"))
+
+    errored = False
+    remaining = len(producers)
+    try:
+        while remaining > 0:
+            item = await out_q.get()
+            if item is sentinel:
+                remaining -= 1
+                continue
+            if isinstance(item, ErrorEvent):
+                errored = True
+            yield item
+    finally:
+        for task in producers:
+            if not task.done():
+                task.cancel()
+        for task in producers:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    if not errored:
+        yield DoneEvent(conversation_id=conversation.id)
+
+
+async def _resolve_conversation(
+    repo: IConversationRepository, conversation_id: Optional[str]
+) -> Optional[Conversation]:
+    if conversation_id:
+        return await repo.get_by_id(conversation_id)
+    return await repo.create(Conversation(title="Obrolan Baru"))
+
+
+def _tool_event_to_message_body(event: ToolResultEvent):
+    """Convert a tool-result event to a domain ToolMessage."""
+    from src.domain.entities import ToolMessage
+
+    return ToolMessage(
+        content=event.content,
+        tool_call_id=event.tool_call_id,
+        name=event.name,
+    )

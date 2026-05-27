@@ -1,11 +1,9 @@
-import math
-from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional
-
 import asyncio
+from pathlib import Path
+from typing import Any, AsyncGenerator, List, Optional
 from langchain.agents import create_agent
 from langchain_community.tools import DuckDuckGoSearchRun
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage as LCAIMessage, HumanMessage, SystemMessage, ToolMessage as LCToolMessage
 from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 from nemoguardrails import LLMRails, RailsConfig
@@ -13,9 +11,27 @@ from sympy import SympifyError, sympify
 
 from src.adapters.agent.middlewares.pseudo_tool_mitigation import strip_pseudo_tools_middleware
 from src.config import settings
-from src.domain.entities import UserContext
+from src.domain.entities import (
+    AIMessage,
+    Function,
+    Message,
+    ResponseMetadata,
+    ToolMessage,
+    ToolsCall,
+    UsageMetadata,
+    UserContext,
+    UserMessage,
+)
+from src.domain.events import (
+    AssistantEvent,
+    ErrorEvent,
+    LogEvent,
+    StreamEvent,
+    TokenEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+)
 from src.ports.services import IAgentService, IRAGService
-from src.shared.constants import MessageType
 
 import logging
 logger = logging.getLogger(__name__)
@@ -36,22 +52,30 @@ class LangchainAgentService(IAgentService):
         self.llm = ChatOllama(
             model=settings.ollama_llm_model,
             base_url=settings.ollama_base_url,
-
             temperature=settings.ollama_temperature,
             top_p=settings.ollama_top_p,
-            # top_k=settings.ollama_top_k,
-            # min_p=settings.ollama_min_p,
+            top_k=settings.ollama_top_k,
+            min_p=settings.ollama_min_p,
 
-            # num_ctx=settings.ollama_num_ctx,
-            # num_predict=settings.ollama_max_tokens,
-            # num_batch=settings.ollama_num_batch,
+            num_ctx=settings.ollama_num_ctx,
+            num_predict=settings.ollama_max_tokens,
+            num_batch=settings.ollama_num_batch,
 
-            # repeat_penalty=settings.ollama_repeat_penalty,
-            # repeat_last_n=settings.ollama_repeat_last_n,
+            repeat_penalty=settings.ollama_repeat_penalty,
+            repeat_last_n=settings.ollama_repeat_last_n,
         )
 
         self.tools = self._create_tools()
-        self.agent = None
+        try:
+            self.agent = create_agent(
+                model=self.llm,
+                tools=self.tools,
+                system_prompt="",
+                middleware=[strip_pseudo_tools_middleware],
+            )
+        except Exception as e:
+            logger.error("Agent build failed at startup: %s", e)
+            raise
 
         try:
             self.rails = LLMRails(RailsConfig.from_path(str(_GUARDRAILS_PATH)))
@@ -129,32 +153,13 @@ class LangchainAgentService(IAgentService):
     async def generate_stream(
         self,
         user_input: str,
-        messages: List[Dict[str, str]],
+        messages: List[Message],
         context: Optional[UserContext] = None,
         system_prompt: str | None = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[StreamEvent, None]:
         try:
-            chat_history = []
-            for msg in messages:
-                msg_type = (msg.get("type") or "").strip().lower()
-                content = msg.get("content", "")
-
-                if msg_type == MessageType.USER.value:
-                    chat_history.append(HumanMessage(content=content))
-                elif msg_type == MessageType.ASSISTANT.value:
-                    tool_calls = msg.get("additional_kwargs", {}).get("tool_calls", [])
-                    chat_history.append(AIMessage(
-                        content=content,
-                        additional_kwargs={"tool_calls": tool_calls}
-                    ))
-                elif msg_type == MessageType.TOOL.value:
-                    tool_call_id = msg.get("tool_call_id")
-                    name = msg.get("name", "")
-                    chat_history.append(ToolMessage(
-                        content=content,
-                        tool_call_id=tool_call_id,
-                        name=name
-                    ))
+            chat_history = [self._to_lc_message(m) for m in messages]
+            chat_history = [m for m in chat_history if m is not None]
 
             if self.rails:
                 try:
@@ -163,23 +168,20 @@ class LangchainAgentService(IAgentService):
                     )
                     content = check.get("content", "")
                     if content and content != _GUARDRAIL_PASS:
-                        yield {"type": "token", "content": content}
+                        yield TokenEvent(content=content)
                         return
                 except Exception as e:
                     logger.warning("Guardrails check error (skipping): %s", e)
 
-            self.agent = create_agent(
-                model=self.llm,
-                tools=self.tools,
-                system_prompt=system_prompt or "",
-                middleware=[strip_pseudo_tools_middleware],
-            )
-
-            yield {"type": "log", "content": "Memproses dengan agent..."}
+            yield LogEvent(content="Memproses dengan agent...")
 
             config = {"configurable": {"thread_id": "agent-thread-1"}}
-            
-            messages_to_send = chat_history if chat_history else [HumanMessage(content=user_input)]
+
+            messages_to_send: list = []
+            if system_prompt:
+                messages_to_send.append(SystemMessage(content=system_prompt))
+            messages_to_send.extend(chat_history)
+            messages_to_send.append(HumanMessage(content=user_input))
 
             async for event in self.agent.astream_events(
                 {"messages": messages_to_send},
@@ -191,52 +193,80 @@ class LangchainAgentService(IAgentService):
                 if kind == "on_chat_model_stream":
                     chunk = event["data"]["chunk"].content or ""
                     if chunk:
-                        yield {"type": "token", "content": chunk}
+                        yield TokenEvent(content=chunk)
 
                 elif kind == "on_tool_start":
-                    data = event["data"]
-                    tool_input = data["input"]
-                    yield {
-                        "type": "tool_call",
-                        "tool": event["name"],
-                        "input": tool_input,
-                    }
+                    yield ToolCallEvent(tool=event["name"], input=event["data"]["input"])
 
                 elif kind == "on_tool_end":
-                    tool_msg = event["data"]["output"] # ToolMessage object
-                    yield {
-                        "type": "tool",
-                        "content": tool_msg.content,
-                        "tool_call_id": tool_msg.tool_call_id,
-                        "name": tool_msg.name,
-                    }
+                    tool_msg = event["data"]["output"]
+                    yield ToolResultEvent(
+                        content=tool_msg.content,
+                        tool_call_id=tool_msg.tool_call_id,
+                        name=tool_msg.name,
+                    )
 
                 elif kind == "on_chat_model_end":
-                    ai_msg = event["data"]["output"]  # AIMessage object
-                    msg_dict = {
-                        "type": "assistant",
-                        "content": ai_msg.content,
-                        "additional_kwargs": {
-                            "tool_calls": [
-                                {
-                                    "id": tc["id"],
-                                    "type": "function",
-                                    "function": {
-                                        "name": tc["name"],
-                                        "arguments": tc["args"],
-                                    },
-                                }
-                                for tc in ai_msg.tool_calls
-                            ] if ai_msg.tool_calls else []
-                        },
-                        "response_metadata": ai_msg.response_metadata,
-                        "usage_metadata": getattr(ai_msg, "usage_metadata", {}),
-                    }
-                    yield msg_dict
-        except Exception as e:
-            error_message = str(e)
-            yield {"type": "error", "content": error_message}
-            raise RuntimeError(f"Agent error: {error_message}")
+                    ai_msg = event["data"]["output"]
+                    yield AssistantEvent(message=self._to_domain_ai_message(ai_msg))
+        except Exception:
+            logger.exception("Agent stream failed")
+            yield ErrorEvent(content="Agent error")
+            return
+
+    @staticmethod
+    def _to_lc_message(message: Message):
+        """Convert a domain Message to a LangChain message, or None if unsupported."""
+        body = message.body
+        if isinstance(body, UserMessage):
+            return HumanMessage(content=body.content)
+        if isinstance(body, AIMessage):
+            tool_calls = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in (body.additional_kwargs or [])
+            ]
+            return LCAIMessage(
+                content=body.content,
+                additional_kwargs={"tool_calls": tool_calls},
+            )
+        if isinstance(body, ToolMessage):
+            return LCToolMessage(
+                content=body.content,
+                tool_call_id=body.tool_call_id,
+                name=body.name,
+            )
+        return None
+
+    @staticmethod
+    def _to_domain_ai_message(ai_msg: Any) -> AIMessage:
+        """Convert a LangChain AIMessage into the domain AIMessage entity."""
+        rm = ai_msg.response_metadata or {}
+        um = getattr(ai_msg, "usage_metadata", {}) or {}
+        tool_calls = [
+            ToolsCall(
+                id=tc["id"],
+                type="function",
+                function=Function(name=tc["name"], arguments=tc["args"]),
+            )
+            for tc in (ai_msg.tool_calls or [])
+        ]
+        return AIMessage(
+            content=ai_msg.content,
+            additional_kwargs=tool_calls,
+            response_metadata=ResponseMetadata(
+                model=rm.get("model", ""),
+                done_reason=rm.get("done_reason", ""),
+            ),
+            usage_metadata=UsageMetadata(
+                input_tokens=um.get("input_tokens", 0),
+                output_tokens=um.get("output_tokens", 0),
+                total_tokens=um.get("total_tokens", 0),
+            ),
+        )
 
     async def generate_title(self, title_prompt: str) -> str:
         """Generate a short title for a conversation."""
