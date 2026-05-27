@@ -10,8 +10,14 @@ class MessageType(Enum):
 
 
 class Character(int, Enum):
-    VENDRA = 1
-    SHAZIA = 0
+    # Active character is LUNA. VENDRA is reserved as a second slot for future
+    # multi-persona development; nothing in production currently selects it.
+    LUNA = 0
+
+    @property
+    def slug(self) -> str:
+        """Lowercase identifier used for voice-clone asset paths (luna.wav, vendra.wav, ...)."""
+        return self.name.lower()
 
 
 class StorageType(Enum):
