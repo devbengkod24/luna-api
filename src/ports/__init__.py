@@ -1,15 +1,26 @@
 """Ports module."""
 
-from src.ports.repositories import IConversationRepository, IMessageRepository, IFileRepository
+from src.ports.identifiers import IUuidGenerator
+from src.ports.prompts import IPromptRepository
+from src.ports.repositories import IConversationRepository, IFileRepository, IMessageRepository
 from src.ports.services import (
     IAgentService,
+    IFaceService,
     IRAGService,
     IStorageService,
     ISTTService,
     ITTSService,
-    IFaceService,
 )
-from src.ports.vision import IFaceRecognitionService, ITrackerService, IEmotionDetectionService
+from src.ports.vision import (
+    IEmotionDetectionService,
+    IFaceAligner,
+    IFaceCropper,
+    IFaceDetector,
+    IFaceEmbedder,
+    IFaceRecognitionService,
+    IImageDecoder,
+    ITrackerService,
+)
 
 __all__ = [
     "IConversationRepository",
@@ -22,7 +33,13 @@ __all__ = [
     "ITTSService",
     "IFaceService",
     "IFaceRecognitionService",
+    "IFaceDetector",
+    "IFaceEmbedder",
+    "IFaceAligner",
+    "IFaceCropper",
+    "IImageDecoder",
     "ITrackerService",
     "IEmotionDetectionService",
+    "IPromptRepository",
+    "IUuidGenerator",
 ]
-

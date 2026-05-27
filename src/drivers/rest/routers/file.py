@@ -50,17 +50,12 @@ async def upload_file(
 
     try:
         req = UploadFileRequest(filename=file.filename or "document", file_content=file_content)
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     logger.info("Uploading file: %s (%d bytes)", req.filename, len(req.file_content))
-
-    try:
-        result = await use_case.execute(file_content=req.file_content, filename=req.filename)
-        return _to_response(result)
-    except Exception as e:
-        logger.error("Error uploading file: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+    result = await use_case.execute(file_content=req.file_content, filename=req.filename)
+    return _to_response(result)
 
 
 @router.get("", response_model=list[FileResponse])
@@ -68,12 +63,8 @@ async def list_files(
     use_case: ListFilesUseCase = Depends(dependencies.get_list_files_use_case),
 ):
     """List all files."""
-    try:
-        files = await use_case.execute()
-        return [_to_response(f) for f in files]
-    except Exception as e:
-        logger.error("Error listing files: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+    files = await use_case.execute()
+    return [_to_response(f) for f in files]
 
 
 @router.delete("/{file_id}", status_code=204)
@@ -82,15 +73,9 @@ async def delete_file(
     use_case: DeleteFileUseCase = Depends(dependencies.get_delete_file_use_case),
 ):
     """Delete file from MinIO, vector store, and DB."""
-    try:
-        deleted = await use_case.execute(file_id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="File not found")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error deleting file %s: %s", file_id, e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+    deleted = await use_case.execute(file_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="File not found")
 
 
 @router.post("/ingest", response_model=IngestResponse, status_code=202)
@@ -98,16 +83,7 @@ async def ingest_files(
     request: IngestRequest,
     use_case: IngestFileUseCase = Depends(dependencies.get_ingest_file_use_case),
 ):
-    """Vectorize file(s) into Qdrant.
-    
-    - If file_id is provided: vectorize that specific file.
-    - If file_id is omitted: vectorize all non-INDEXING files.
-    - tags: used as metadata for context filtering (optional).
-    """
+    """Vectorize file(s) into Qdrant."""
     logger.info("Ingest request: file_id=%s, tags=%s", request.file_id, request.tags)
-    try:
-        result = await use_case.execute(file_id=request.file_id, tags=request.tags)
-        return IngestResponse(**result)
-    except Exception as e:
-        logger.error("Error ingesting files: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+    result = await use_case.execute(file_id=request.file_id, tags=request.tags)
+    return IngestResponse(**result)

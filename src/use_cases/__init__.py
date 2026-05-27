@@ -1,6 +1,10 @@
 """Use cases module - business logic layer."""
 
-from .response_use_case import ResponseTextUseCase, ResponseSpeechUseCase
+from .response_use_case import (
+    GenerateTitleUseCase,
+    ResponseTextUseCase,
+    ResponseSpeechUseCase,
+)
 from .conversation_use_case import (
     ListConversationsUseCase,
     UpdateConversationUseCase,
@@ -24,6 +28,7 @@ from .face_use_case import (
 from .vision_use_case import VisionUseCase
 
 __all__ = [
+    "GenerateTitleUseCase",
     "ResponseTextUseCase",
     "ResponseSpeechUseCase",
     "ListConversationsUseCase",

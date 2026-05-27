@@ -4,7 +4,6 @@ from uuid import UUID
 
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from src.adapters.persistence.models import ConversationModel, MessageModel, FileModel
 from src.domain.entities import Conversation, Message, File
@@ -24,11 +23,7 @@ class ConversationRepository(IConversationRepository):
         return ConversationMapper.to_entity(model)
 
     async def get_by_id(self, id: str) -> Conversation | None:
-        stmt = (
-            select(ConversationModel)
-            .where(ConversationModel.id == id)
-            .options(selectinload(ConversationModel.messages))
-        )
+        stmt = select(ConversationModel).where(ConversationModel.id == id)
         result = await self.session.execute(stmt)
         model = result.scalar_one_or_none()
         if not model:
@@ -68,24 +63,19 @@ class ConversationRepository(IConversationRepository):
         return conversations, next_cursor
 
     async def update_title(self, id: str, title: str) -> bool:
-        stmt = select(ConversationModel).where(ConversationModel.id == id)
+        stmt = (
+            update(ConversationModel)
+            .where(ConversationModel.id == id)
+            .values(title=title)
+        )
         result = await self.session.execute(stmt)
-        model = result.scalar_one_or_none()
-        if not model:
-            return False
-        model.title = title
-        await self.session.flush()
-        return True
+        return (result.rowcount or 0) > 0
 
     async def delete(self, id: str) -> bool:
-        stmt = select(ConversationModel).where(ConversationModel.id == id)
+        # ON DELETE CASCADE on messages.conversation_id handles child rows.
+        stmt = delete(ConversationModel).where(ConversationModel.id == id)
         result = await self.session.execute(stmt)
-        model = result.scalar_one_or_none()
-        if not model:
-            return False
-        await self.session.delete(model)
-        await self.session.flush()
-        return True
+        return (result.rowcount or 0) > 0
 
 
 class MessageRepository(IMessageRepository):
@@ -165,14 +155,9 @@ class MessageRepository(IMessageRepository):
         return messages, next_cursor
 
     async def delete(self, id: str) -> bool:
-        stmt = select(MessageModel).where(MessageModel.id == id)
+        stmt = delete(MessageModel).where(MessageModel.id == id)
         result = await self.session.execute(stmt)
-        model = result.scalar_one_or_none()
-        if not model:
-            return False
-        await self.session.delete(model)
-        await self.session.flush()
-        return True
+        return (result.rowcount or 0) > 0
 
 
 class FileRepository(IFileRepository):
@@ -220,11 +205,6 @@ class FileRepository(IFileRepository):
         return file
 
     async def delete(self, id: str) -> bool:
-        stmt = select(FileModel).where(FileModel.id == id)
+        stmt = delete(FileModel).where(FileModel.id == id)
         result = await self.session.execute(stmt)
-        model = result.scalar_one_or_none()
-        if not model:
-            return False
-        await self.session.delete(model)
-        await self.session.flush()
-        return True
+        return (result.rowcount or 0) > 0

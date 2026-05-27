@@ -1,117 +1,122 @@
-"""Dependency injection for FastAPI."""
+"""Dependency wiring for FastAPI.
+
+All long-lived adapter instances are stored on `app.state` (configured by the
+lifespan in `main.py`). Per-request dependency factories below resolve them via
+the incoming `Request` (HTTP) or `WebSocket`.
+"""
+
 import logging
 from typing import AsyncGenerator
-from fastapi import Depends
+
+from fastapi import Depends, Request, WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.adapters import (
+    ChatterboxSTTSService,
+    EmoferService,
+    EmotionDetectionService,
+    F5TTSIndonesianService,
+    FaceRecognitionService,
+    FaceStore,
+    LangchainAgentService,
+    LlamaIndexRAGService,
+    MMSTTSService,
+    MinIOStorageService,
+    TrackerService,
+    WhisperSTTService,
+)
+from src.adapters.identifiers import StdUuidGenerator
+from src.adapters.persistence import (
+    ConversationRepository,
+    DatabaseConnection,
+    FileRepository,
+    MessageRepository,
+)
+from src.adapters.prompts import FilePromptRepository
+from src.adapters.vad import SileroVadService, WebRtcVadService
+from src.config import settings
+from src.ports.identifiers import IUuidGenerator
+from src.ports.prompts import IPromptRepository
+from src.ports.vad import IVadService
+from src.shared.exceptions import ServiceUnavailableException
+from src.use_cases import (
+    DeleteConversationUseCase,
+    DeleteFaceUseCase,
+    DeleteFileUseCase,
+    DeleteMessageUseCase,
+    GenerateTitleUseCase,
+    GetFaceUseCase,
+    IngestFileUseCase,
+    ListConversationMessagesUseCase,
+    ListConversationsUseCase,
+    ListFacesUseCase,
+    ListFilesUseCase,
+    RegisterFacesUseCase,
+    ResponseSpeechUseCase,
+    ResponseTextUseCase,
+    UpdateConversationUseCase,
+    UploadFileUseCase,
+    VisionUseCase,
+)
 
 logger = logging.getLogger(__name__)
 
-from src.shared.exceptions import ServiceUnavailableException
-from src.adapters.persistence import (
-    DatabaseConnection,
-    ConversationRepository, 
-    MessageRepository, 
-    FileRepository,
-)
-from src.adapters import (
-    LangchainAgentService,
-    WhisperSTTService,
-    MMSTTSService,
-    ChatterboxSTTSService,
-    F5TTSIndonesianService,
-    MinIOStorageService,
-    LlamaIndexRAGService,
-    FaceStore,
-    FaceRecognitionService,
-    EmotionDetectionService,
-    EmoferService,
-    TrackerService,
-)
-from src.config import settings
-from src.use_cases import (
-    ResponseTextUseCase,
-    ResponseSpeechUseCase,
-    ListConversationsUseCase,
-    UpdateConversationUseCase,
-    DeleteConversationUseCase,
-    ListConversationMessagesUseCase,
-    DeleteMessageUseCase,
-    UploadFileUseCase,
-    ListFilesUseCase,
-    DeleteFileUseCase,
-    IngestFileUseCase,
-    RegisterFacesUseCase,
-    ListFacesUseCase,
-    GetFaceUseCase,
-    DeleteFaceUseCase,
-)
 
-db_connection: DatabaseConnection | None = None
-rag_service: LlamaIndexRAGService | None = None
-storage_service: MinIOStorageService | None = None
-stt_service: WhisperSTTService | None = None
-tts_service: object | None = None
-agent_service: LangchainAgentService | None = None
-face_service: FaceStore | None = None
-face_recognition: FaceRecognitionService | None = None
-emotion_service: EmotionDetectionService | None = None
-tracker_service: TrackerService | None = None
+class AppContainer:
+    """Holds long-lived adapter instances. Attached to `app.state.container`."""
+
+    db_connection: DatabaseConnection | None = None
+    rag_service: LlamaIndexRAGService | None = None
+    storage_service: MinIOStorageService | None = None
+    stt_service: WhisperSTTService | None = None
+    tts_service: object | None = None
+    agent_service: LangchainAgentService | None = None
+    face_service: FaceStore | None = None
+    face_recognition: FaceRecognitionService | None = None
+    emotion_service: EmotionDetectionService | EmoferService | None = None
+    tracker_service: TrackerService | None = None
+    prompt_repository: IPromptRepository | None = None
+    uuid_generator: IUuidGenerator | None = None
+    vad_service: IVadService | None = None
 
 
-def initialize_dependencies() -> None:
-    """Initialize all global adapter instances used by the API."""
+def initialize_container() -> AppContainer:
+    """Build the application container with all sync-initialized adapters."""
+    container = AppContainer()
     try:
-        _init_database()
-        _init_rag_service()
-        _init_storage()
-        _init_speech()
-        _init_agent()
-        _init_face()
-        _init_vision()
+        container.db_connection = DatabaseConnection(url=settings.database_url)
+        container.rag_service = LlamaIndexRAGService()
+        container.storage_service = _build_storage()
+        container.stt_service, container.tts_service = _build_speech()
+        container.agent_service = LangchainAgentService(rag_service=container.rag_service)
+        container.face_service, container.face_recognition = _build_face()
+        container.emotion_service, container.tracker_service = _build_vision()
+        container.prompt_repository = FilePromptRepository()
+        _warm_prompt_cache(container.prompt_repository)
+        container.uuid_generator = StdUuidGenerator()
+        container.vad_service = _build_vad()
+        return container
     except Exception as e:
         logger.critical("Error initializing dependencies: %s", e, exc_info=True)
         raise
 
 
-def _init_database() -> None:
-    global db_connection
-    db_connection = DatabaseConnection(url=settings.database_url)
-
-
-def _init_rag_service() -> None:
-    global rag_service
-    rag_service = LlamaIndexRAGService()
-
-
-async def initialize_rag_async() -> None:
-    """Call RAG service's async initialize() (Qdrant collection + vector store). Call from app lifespan."""
-    if rag_service is None:
-        return
-    await rag_service.initialize()
-
-
-async def initialize_face_async() -> None:
-    """Initialize face Qdrant collection. Call from app lifespan."""
-    if face_service is None:
-        return
-    await face_service.initialize()
-
-
-def _init_storage() -> None:
-    global storage_service
+def _build_storage() -> MinIOStorageService | None:
     try:
-        storage_service = MinIOStorageService()
+        service = MinIOStorageService()
         logger.info("Storage service initialized successfully")
+        return service
     except Exception as e:
         logger.warning("Could not initialize storage service: %s", e)
-        storage_service = None
+        return None
 
 
-def _init_speech() -> None:
-    global stt_service, tts_service
+def _build_speech() -> tuple[WhisperSTTService | None, object | None]:
+    stt: WhisperSTTService | None = None
+    tts: object | None = None
 
     if settings.enable_stt:
-        stt_service = WhisperSTTService(
+        stt = WhisperSTTService(
             model_size=settings.whisper_model,
             device=settings.gpu_device,
             compute_type="int8",
@@ -123,95 +128,183 @@ def _init_speech() -> None:
         try:
             provider = (settings.tts_provider or "mms").strip().lower()
             if provider in {"chatterbox", "chatterbox-id", "chatterbox_indonesia"}:
-                tts_service = ChatterboxSTTSService(
-                    voice_clone_dir=settings.voice_clone_dir,
-                )
+                tts = ChatterboxSTTSService(voice_clone_dir=settings.voice_clone_dir)
                 logger.info("TTS adapter initialized successfully (provider=chatterbox)")
             elif provider in {"f5", "f5-tts", "f5_tts", "f5-indonesia", "f5_indo"}:
-                tts_service = F5TTSIndonesianService(
-                    voice_clone_dir=settings.voice_clone_dir,
-                )
+                tts = F5TTSIndonesianService(voice_clone_dir=settings.voice_clone_dir)
                 logger.info("TTS adapter initialized successfully (provider=f5)")
             else:
-                tts_service = MMSTTSService()
+                tts = MMSTTSService()
                 logger.info("TTS adapter initialized successfully (provider=mms)")
         except Exception as e:
             logger.warning("Could not initialize TTS adapter: %s", e)
-            tts_service = None
+            tts = None
     else:
         logger.info("TTS disabled (ENABLE_TTS=False).")
 
-
-def _init_agent() -> None:
-    global agent_service
-
-    agent_service = LangchainAgentService(
-        rag_service=rag_service,
-    )
+    return stt, tts
 
 
-def _init_face() -> None:
-    global face_service, face_recognition
+def _build_face() -> tuple[FaceStore | None, FaceRecognitionService | None]:
     if not settings.enable_face_recognition:
         logger.info("Face recognition disabled (ENABLE_FACE_RECOGNITION=False).")
-        return
+        return None, None
     try:
-        face_service = FaceStore()
-        face_recognition = FaceRecognitionService()
+        service = FaceStore()
+        recognition = FaceRecognitionService()
         logger.info("Face service initialized successfully")
+        return service, recognition
     except Exception as e:
         logger.warning("Could not initialize face service: %s", e)
+        return None, None
 
 
-def _init_vision() -> None:
-    global emotion_service, tracker_service
+def _warm_prompt_cache(prompts: IPromptRepository) -> None:
+    """Pre-render prompts so the first request doesn't pay disk I/O cost."""
+    try:
+        from src.shared.constants import Character
+
+        for character in Character:
+            prompts.get_system_prompt(character)
+        prompts.get_tts_system_prompt()
+    except Exception as e:
+        logger.warning("Prompt warm-up failed (non-fatal): %s", e)
+
+
+def _build_vad() -> IVadService | None:
+    if not settings.enable_voice_ws:
+        logger.info("Voice WS disabled (ENABLE_VOICE_WS=False).")
+        return None
+
+    provider = (settings.vad_provider or "silero").lower().strip()
+
+    if provider == "silero":
+        try:
+            service = SileroVadService(
+                sample_rate=settings.voice_vad_sample_rate,
+                frame_duration_ms=settings.voice_vad_frame_ms,
+                threshold=settings.silero_vad_threshold,
+            )
+            logger.info("VAD service initialized: silero (neural)")
+            return service
+        except Exception as e:
+            logger.warning(
+                "Silero VAD load failed (%s) — falling back to WebRTC", e,
+            )
+
+    # Either provider == "webrtc" or Silero failed; use the energy-based VAD.
+    try:
+        service = WebRtcVadService(
+            aggressiveness=settings.voice_vad_aggressiveness,
+            sample_rate=settings.voice_vad_sample_rate,
+            frame_duration_ms=settings.voice_vad_frame_ms,
+        )
+        logger.info("VAD service initialized: webrtc (energy-based)")
+        return service
+    except Exception as e:
+        logger.warning("Could not initialize any VAD service: %s", e)
+        return None
+
+
+def _build_vision() -> tuple[EmotionDetectionService | EmoferService | None, TrackerService | None]:
     if not settings.enable_face_recognition:
         logger.info("Vision services skipped (ENABLE_FACE_RECOGNITION=False).")
-        return
+        return None, None
+
+    tracker: TrackerService | None = None
     try:
-        tracker_service = TrackerService()
+        tracker = TrackerService()
         logger.info("Tracker service initialized successfully")
     except Exception as e:
         logger.warning("Could not initialize tracker service: %s", e)
 
+    emotion: EmotionDetectionService | EmoferService | None = None
     if settings.enable_emotion_detection:
         try:
             provider = (settings.emotion_provider or "huggingface").strip().lower()
             if provider == "emofer":
-                emotion_service = EmoferService()
+                emotion = EmoferService()
                 logger.info("Emotion detection service initialized (provider=emofer)")
             else:
-                emotion_service = EmotionDetectionService()
+                emotion = EmotionDetectionService()
                 logger.info("Emotion detection service initialized (provider=huggingface)")
         except Exception as e:
             logger.warning("Could not initialize emotion detection service: %s", e)
     else:
         logger.info("Emotion detection disabled (ENABLE_EMOTION_DETECTION=False).")
 
+    return emotion, tracker
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    if not db_connection:
+
+def container_from(scope) -> AppContainer:
+    """Resolve the application container from any object exposing `.app.state`."""
+    container: AppContainer | None = getattr(scope.app.state, "container", None)
+    if container is None:
+        raise RuntimeError("Application container not initialized")
+    return container
+
+
+async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    container = container_from(request)
+    if container.db_connection is None:
         raise RuntimeError("Database connection not initialized")
-    async for session in db_connection.get_session():
+    async for session in container.db_connection.get_session():
         yield session
 
 
 # --- Response use case factories ---
 
+def make_title_runner(container: AppContainer):
+    """Build a detached title-generation runner that uses its OWN db session.
+
+    The streaming pipeline persists messages on the request-scoped session; the
+    title side-task must not share it (concurrent use of a single AsyncSession,
+    and the task can outlive the request). Each call opens and commits its own
+    session via the connection's `get_session()`.
+    """
+    async def _run(conversation_id: str, user_input: str) -> None:
+        if container.db_connection is None or container.agent_service is None:
+            return
+        async for session in container.db_connection.get_session():
+            use_case = GenerateTitleUseCase(
+                conversation_repo=ConversationRepository(session),
+                agent_service=container.agent_service,
+                prompt_repo=container.prompt_repository,
+            )
+            await use_case.execute(conversation_id, user_input)
+
+    return _run
+
+
 async def get_response_text_use_case(
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> ResponseTextUseCase:
-    conversation_repo = ConversationRepository(session)
-    message_repo = MessageRepository(session)
-    return ResponseTextUseCase(conversation_repo, message_repo, agent_service, tts_service)
+    container = container_from(request)
+    return ResponseTextUseCase(
+        conversation_repo=ConversationRepository(session),
+        message_repo=MessageRepository(session),
+        agent_service=container.agent_service,
+        tts_service=container.tts_service,
+        prompt_repo=container.prompt_repository,
+        title_runner=make_title_runner(container),
+    )
 
 
 async def get_response_speech_use_case(
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> ResponseSpeechUseCase:
-    conversation_repo = ConversationRepository(session)
-    message_repo = MessageRepository(session)
-    return ResponseSpeechUseCase(conversation_repo, message_repo, agent_service, tts_service, stt_service)
+    container = container_from(request)
+    return ResponseSpeechUseCase(
+        conversation_repo=ConversationRepository(session),
+        message_repo=MessageRepository(session),
+        agent_service=container.agent_service,
+        tts_service=container.tts_service,
+        stt_service=container.stt_service,
+        prompt_repo=container.prompt_repository,
+        title_runner=make_title_runner(container),
+    )
 
 
 # --- Conversation use case factories ---
@@ -249,13 +342,15 @@ async def get_delete_message_use_case(
 # --- File use case factories ---
 
 async def get_upload_file_use_case(
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> UploadFileUseCase:
-    if not storage_service:
+    container = container_from(request)
+    if not container.storage_service:
         raise ServiceUnavailableException(
             "Storage (MinIO) is not available. Check MINIO_* env vars and ensure MinIO is running."
         )
-    return UploadFileUseCase(FileRepository(session), storage_service)
+    return UploadFileUseCase(FileRepository(session), container.storage_service)
 
 
 async def get_list_files_use_case(
@@ -265,60 +360,79 @@ async def get_list_files_use_case(
 
 
 async def get_delete_file_use_case(
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> DeleteFileUseCase:
-    if not storage_service:
+    container = container_from(request)
+    if not container.storage_service:
         raise ServiceUnavailableException(
             "Storage (MinIO) is not available. Check MINIO_* env vars and ensure MinIO is running."
         )
-    return DeleteFileUseCase(FileRepository(session), storage_service, rag_service)
+    return DeleteFileUseCase(
+        FileRepository(session), container.storage_service, container.rag_service
+    )
 
 
 async def get_ingest_file_use_case(
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> IngestFileUseCase:
-    if not storage_service:
+    container = container_from(request)
+    if not container.storage_service:
         raise ServiceUnavailableException(
             "Storage (MinIO) is not available. Check MINIO_* env vars and ensure MinIO is running."
         )
-    return IngestFileUseCase(FileRepository(session), storage_service, rag_service)
+    return IngestFileUseCase(
+        FileRepository(session), container.storage_service, container.rag_service
+    )
 
 
 # --- Face use case factories ---
 
-def get_register_faces_use_case() -> RegisterFacesUseCase:
-    if not face_service or not face_recognition:
+def get_register_faces_use_case(request: Request) -> RegisterFacesUseCase:
+    container = container_from(request)
+    if not container.face_service or not container.face_recognition:
         raise ServiceUnavailableException("Face service is not available.")
-    return RegisterFacesUseCase(face_recognition, face_service)
+    return RegisterFacesUseCase(
+        face_detector=container.face_recognition,
+        face_service=container.face_service,
+        uuid_generator=container.uuid_generator,
+    )
 
 
-def get_list_faces_use_case() -> ListFacesUseCase:
-    if not face_service:
+def get_list_faces_use_case(request: Request) -> ListFacesUseCase:
+    container = container_from(request)
+    if not container.face_service:
         raise ServiceUnavailableException("Face service is not available.")
-    return ListFacesUseCase(face_service)
+    return ListFacesUseCase(container.face_service)
 
 
-def get_face_use_case() -> GetFaceUseCase:
-    if not face_service:
+def get_face_use_case(request: Request) -> GetFaceUseCase:
+    container = container_from(request)
+    if not container.face_service:
         raise ServiceUnavailableException("Face service is not available.")
-    return GetFaceUseCase(face_service)
+    return GetFaceUseCase(container.face_service)
 
 
-def get_delete_face_use_case() -> DeleteFaceUseCase:
-    if not face_service:
+def get_delete_face_use_case(request: Request) -> DeleteFaceUseCase:
+    container = container_from(request)
+    if not container.face_service:
         raise ServiceUnavailableException("Face service is not available.")
-    return DeleteFaceUseCase(face_service)
+    return DeleteFaceUseCase(container.face_service)
 
 
 # --- Vision use case factory ---
 
-def get_vision_use_case():
-    from src.use_cases import VisionUseCase
-    if not face_recognition:
+def get_vision_use_case(websocket: WebSocket) -> VisionUseCase:
+    container = container_from(websocket)
+    if not container.face_recognition:
         raise ServiceUnavailableException("Face recognition service is not available.")
     return VisionUseCase(
-        face_recognition=face_recognition,
-        face_store=face_service,
-        tracker=tracker_service,
-        emotion_detection=emotion_service,
+        image_decoder=container.face_recognition,
+        face_detector=container.face_recognition,
+        face_aligner=container.face_recognition,
+        face_embedder=container.face_recognition,
+        face_store=container.face_service,
+        tracker=container.tracker_service,
+        emotion_detection=container.emotion_service,
     )

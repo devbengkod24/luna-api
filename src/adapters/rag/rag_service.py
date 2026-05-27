@@ -11,7 +11,7 @@ from llama_index.core import (
 )
 from llama_index.core.indices.vector_store.retrievers import VectorIndexRetriever
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
-from llama_index.core.node_parser import SemanticDoubleMergingSplitterNodeParser, SentenceSplitter
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import AsyncQdrantClient, QdrantClient
@@ -66,13 +66,6 @@ class LlamaIndexRAGService(IRAGService):
                 chunk_size=settings.rag_chunk_size,
                 chunk_overlap=settings.rag_chunk_overlap,
             )
-        # self.node_parser = SemanticDoubleMergingSplitterNodeParser(
-        #     embed_model=self.embed_model,
-        #     initial_threshold=0.6,      # threshold awal chunk baru
-        #     appending_threshold=0.8,    # threshold menambah kalimat ke chunk
-        #     merging_threshold=0.8,      # threshold penggabungan chunk
-        #     max_chunk_size=1000         # maksimal karakter per chunk
-        # )
 
         self.vector_store: QdrantVectorStore | None = None
         self.storage_context: StorageContext | None = None
@@ -176,7 +169,7 @@ class LlamaIndexRAGService(IRAGService):
             nodes,
             storage_context=self.storage_context,
             store_nodes_override=True,
-            show_progress=True,
+            show_progress=False,
         )
 
         logger.info("Indexed %d nodes for file_id=%s (tags=%s)", len(nodes), file_id, tags)

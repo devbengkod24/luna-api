@@ -1,6 +1,5 @@
 """File use cases — upload to MinIO, CRUD via DB, and ingest to vector store."""
 
-import io
 import logging
 import tempfile
 from pathlib import Path
