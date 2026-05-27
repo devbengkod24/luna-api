@@ -60,6 +60,9 @@ class SileroVadService(IVadService):
         # window) doesn't silently report False. We replay the previous
         # speech/silence verdict for partial frames.
         self._last_speech = False
+        # Last raw speech probability (0..1). Exposed for downstream fusion
+        # (directedness) that wants VAD confidence, not just the boolean gate.
+        self._last_prob = 0.0
 
         logger.info(
             "SileroVadService initialized: sr=%d frame_ms=%d threshold=%.2f window=%d",
@@ -73,6 +76,11 @@ class SileroVadService(IVadService):
     @property
     def frame_duration_ms(self) -> int:
         return self._frame_duration_ms
+
+    @property
+    def last_prob(self) -> float:
+        """Raw speech probability of the most recently processed window (0..1)."""
+        return self._last_prob
 
     def is_speech(self, frame: bytes) -> bool:
         if len(frame) != self.frame_bytes:
@@ -96,6 +104,7 @@ class SileroVadService(IVadService):
                     out = self._model(chunk, self._sample_rate)
                 prob = float(out.flatten()[0].item())
                 speech = prob >= self._threshold
+                self._last_prob = prob
                 i += window
 
             # Carry the leftover (< window) into the next call.

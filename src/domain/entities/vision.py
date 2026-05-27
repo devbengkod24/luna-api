@@ -195,3 +195,20 @@ class DetectedEmotion:
 
     emotion: str
     confidence: float = 0.0
+
+
+@dataclass
+class DirectednessVerdict:
+    """Outcome of fusing facing (visual) + active-speaker (audio-visual) + VAD.
+
+    Answers "should the system respond to this utterance?". `reason` carries a
+    short machine-readable tag for telemetry/tuning (e.g. "directed",
+    "low_facing", "low_asd", "fail_open_no_face", "asd_disabled").
+    """
+
+    directed: bool
+    facing_score: float = 0.0
+    asd_score: float = 0.0
+    asd_active_ratio: float = 0.0
+    candidate_track_id: Optional[int] = None
+    reason: str = "directed"

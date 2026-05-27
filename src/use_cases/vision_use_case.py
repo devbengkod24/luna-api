@@ -17,6 +17,7 @@ from src.ports.services import IFaceService
 from src.ports.vision import (
     IEmotionDetectionService,
     IFaceAligner,
+    IFaceCropper,
     IFaceDetector,
     IFaceEmbedder,
     IImageDecoder,
@@ -38,6 +39,7 @@ class VisionUseCase:
         face_store: Optional[IFaceService] = None,
         tracker: Optional[ITrackerService] = None,
         emotion_detection: Optional[IEmotionDetectionService] = None,
+        face_cropper: Optional[IFaceCropper] = None,
     ):
         self.image_decoder = image_decoder
         self.face_detector = face_detector
@@ -46,6 +48,7 @@ class VisionUseCase:
         self.face_store = face_store
         self.tracker = tracker
         self.emotion_detection = emotion_detection
+        self.face_cropper = face_cropper
 
         self.similarity_threshold = settings.face_similarity_threshold
         self.emotion_interval = settings.vision_emotion_interval
@@ -170,17 +173,20 @@ class VisionUseCase:
 
     # --- Main entry point ---
 
-    async def execute(self, frame_bytes: bytes, frame_id: int = 0) -> List[VisionResult]:
+    async def _decode_and_track(
+        self, frame_bytes: bytes, frame_id: int
+    ) -> tuple[Optional[Image], List[TrackedFaceData]]:
+        """Decode a frame and produce tracked faces (shared detect+track path)."""
         frame = await self.image_decoder.decode(frame_bytes)
         if frame is None:
-            return []
+            return None, []
 
         detections = await self.face_detector.detect(frame)
         if not detections:
             if self.tracker:
                 _, dead = await self.tracker.track([], frame_id)
                 self._cleanup_dead(dead)
-            return []
+            return frame, []
 
         if self.tracker:
             tracked_faces, dead = await self.tracker.track(detections, frame_id)
@@ -197,12 +203,45 @@ class VisionUseCase:
                 for d in detections
             ]
 
-        if not tracked_faces:
+        return frame, tracked_faces
+
+    async def execute(self, frame_bytes: bytes, frame_id: int = 0) -> List[VisionResult]:
+        frame, tracked_faces = await self._decode_and_track(frame_bytes, frame_id)
+        if frame is None or not tracked_faces:
             return []
 
         return list(await asyncio.gather(*[
             self._process_track(t, frame, frame_id) for t in tracked_faces
         ]))
+
+    async def execute_with_crops(
+        self, frame_bytes: bytes, frame_id: int = 0
+    ) -> tuple[List[VisionResult], Dict[int, Image]]:
+        """Like `execute`, but also return a natural bbox crop per track_id.
+
+        Used by the session router to buffer face crops for active-speaker
+        detection. Crops are the padded bbox region (not the canonical aligned
+        face) — LR-ASD needs natural jaw/lip motion. Returns ({}, {}) shapes
+        when nothing is detected.
+        """
+        frame, tracked_faces = await self._decode_and_track(frame_bytes, frame_id)
+        if frame is None or not tracked_faces:
+            return [], {}
+
+        results = await asyncio.gather(*[
+            self._process_track(t, frame, frame_id) for t in tracked_faces
+        ])
+
+        crops: Dict[int, Image] = {}
+        if self.face_cropper is not None:
+            cropped = await asyncio.gather(*[
+                self.face_cropper.crop(frame, t.bbox, padding=0.4) for t in tracked_faces
+            ])
+            for t, c in zip(tracked_faces, cropped):
+                if c is not None:
+                    crops[t.track_id] = c
+
+        return list(results), crops
 
     async def reset(self) -> None:
         if self.tracker:

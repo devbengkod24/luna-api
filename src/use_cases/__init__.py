@@ -26,6 +26,7 @@ from .face_use_case import (
 )
 
 from .vision_use_case import VisionUseCase
+from .directedness_use_case import DirectednessUseCase
 
 __all__ = [
     "GenerateTitleUseCase",
@@ -45,4 +46,5 @@ __all__ = [
     "GetFaceUseCase",
     "DeleteFaceUseCase",
     "VisionUseCase",
+    "DirectednessUseCase",
 ]

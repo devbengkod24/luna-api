@@ -12,8 +12,7 @@ from starlette.responses import Response
 
 from src.config import settings
 from src.drivers import dependencies
-from src.drivers.realtime.routers import vision
-from src.drivers.realtime.routers import voice
+from src.drivers.realtime.routers import session
 from src.drivers.rest.routers import conversation
 from src.drivers.rest.routers import face
 from src.drivers.rest.routers import file as file_router
@@ -107,8 +106,7 @@ app.include_router(response.router, prefix=settings.api_v1_prefix)
 app.include_router(conversation.router, prefix=settings.api_v1_prefix)
 app.include_router(file_router.router, prefix=settings.api_v1_prefix)
 app.include_router(face.router, prefix=settings.api_v1_prefix)
-app.include_router(vision.router, prefix=settings.api_v1_prefix)
-app.include_router(voice.router, prefix=settings.api_v1_prefix)
+app.include_router(session.router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/health", include_in_schema=False)

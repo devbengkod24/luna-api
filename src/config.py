@@ -208,6 +208,23 @@ class Settings(BaseSettings):
         default=30.0, alias="VOICE_MAX_UTTERANCE_SECONDS"
     )
 
+    # Device-Directed Speech Detection (Active Speaker Detection + facing fusion)
+    # When enabled, a finished VAD utterance is only committed to STT/LLM/TTS if
+    # the candidate face was both facing the kiosk AND its lip motion correlated
+    # with the audio (LR-ASD). Fail-open: if ASD can't load or no face is tracked,
+    # the utterance is treated as directed so the system never goes deaf.
+    enable_asd: bool = Field(default=False, alias="ENABLE_ASD")
+    asd_model_path: str = Field(
+        default="storage/models/lr_asd.pth", alias="ASD_MODEL_PATH"
+    )
+    # Per-frame visual "speaking" score gate (LR-ASD output, sigmoid 0..1).
+    asd_score_threshold: float = Field(default=0.4, alias="ASD_SCORE_THRESHOLD")
+    # Fraction of the utterance's frames that must clear asd_score_threshold for
+    # the candidate to count as the active speaker.
+    asd_presence_ratio: float = Field(default=0.35, alias="ASD_PRESENCE_RATIO")
+    # Mean facing score (FE MediaPipe metadata, 0..1) required over the utterance.
+    facing_threshold: float = Field(default=0.5, alias="FACING_THRESHOLD")
+
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
     voice_clone_dir: str = Field(

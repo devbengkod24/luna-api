@@ -12,6 +12,7 @@ from fastapi import Depends, Request, WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters import (
+    ActiveSpeakerService,
     ChatterboxSTTSService,
     EmoferService,
     EmotionDetectionService,
@@ -75,6 +76,7 @@ class AppContainer:
     face_recognition: FaceRecognitionService | None = None
     emotion_service: EmotionDetectionService | EmoferService | None = None
     tracker_service: TrackerService | None = None
+    asd_service: ActiveSpeakerService | None = None
     prompt_repository: IPromptRepository | None = None
     uuid_generator: IUuidGenerator | None = None
     vad_service: IVadService | None = None
@@ -90,7 +92,11 @@ def initialize_container() -> AppContainer:
         container.stt_service, container.tts_service = _build_speech()
         container.agent_service = LangchainAgentService(rag_service=container.rag_service)
         container.face_service, container.face_recognition = _build_face()
-        container.emotion_service, container.tracker_service = _build_vision()
+        (
+            container.emotion_service,
+            container.tracker_service,
+            container.asd_service,
+        ) = _build_vision()
         container.prompt_repository = FilePromptRepository()
         _warm_prompt_cache(container.prompt_repository)
         container.uuid_generator = StdUuidGenerator()
@@ -206,10 +212,14 @@ def _build_vad() -> IVadService | None:
         return None
 
 
-def _build_vision() -> tuple[EmotionDetectionService | EmoferService | None, TrackerService | None]:
+def _build_vision() -> tuple[
+    EmotionDetectionService | EmoferService | None,
+    TrackerService | None,
+    ActiveSpeakerService | None,
+]:
     if not settings.enable_face_recognition:
         logger.info("Vision services skipped (ENABLE_FACE_RECOGNITION=False).")
-        return None, None
+        return None, None, None
 
     tracker: TrackerService | None = None
     try:
@@ -233,7 +243,20 @@ def _build_vision() -> tuple[EmotionDetectionService | EmoferService | None, Tra
     else:
         logger.info("Emotion detection disabled (ENABLE_EMOTION_DETECTION=False).")
 
-    return emotion, tracker
+    # Active Speaker Detection (device-directed fusion). Fail-soft: if the model
+    # or its optional deps are missing, leave it None and the directedness gate
+    # fails open (see DirectednessUseCase).
+    asd: ActiveSpeakerService | None = None
+    if settings.enable_asd:
+        try:
+            asd = ActiveSpeakerService()
+            logger.info("Active speaker detection service initialized (LR-ASD)")
+        except Exception as e:
+            logger.warning("Could not initialize active speaker detection service: %s", e)
+    else:
+        logger.info("Active speaker detection disabled (ENABLE_ASD=False).")
+
+    return emotion, tracker, asd
 
 
 def container_from(scope) -> AppContainer:
@@ -435,4 +458,17 @@ def get_vision_use_case(websocket: WebSocket) -> VisionUseCase:
         face_store=container.face_service,
         tracker=container.tracker_service,
         emotion_detection=container.emotion_service,
+        face_cropper=container.face_recognition,
     )
+
+
+def make_directedness_use_case(container: AppContainer) -> "DirectednessUseCase":
+    """Build the device-directed fusion use case from the container.
+
+    `asd_service` may be None (ASD disabled or failed to load) — the use case
+    then fails open on the audio-visual dimension. Imported lazily to avoid a
+    heavier import at module load.
+    """
+    from src.use_cases import DirectednessUseCase
+
+    return DirectednessUseCase(active_speaker=container.asd_service)

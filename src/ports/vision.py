@@ -104,6 +104,22 @@ class ITrackerService(ABC):
         ...
 
 
+class IActiveSpeakerService(ABC):
+    """Audio-visual active-speaker detector (LR-ASD family).
+
+    Given a temporally-ordered sequence of face crops for one track and the
+    corresponding audio segment, returns a per-frame "speaking" score (0..1)
+    aligned to `face_crops`. High score = this visible face produced this audio
+    (lip motion correlates with the audio) — the core device-directed signal.
+    """
+
+    @abstractmethod
+    async def score(
+        self, face_crops: List[Image], pcm16: bytes, sample_rate: int
+    ) -> List[float]:
+        ...
+
+
 class IEmotionDetectionService(ABC):
     """Interface for emotion detection."""
 

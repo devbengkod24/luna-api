@@ -106,6 +106,12 @@ services:
       ENABLE_TTS: False
       FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
 
+      # Device-Directed Speech Detection (LR-ASD active-speaker fusion).
+      # Off by default: the directedness gate then fails open to a facing-only
+      # check. Set true to fuse lip↔audio (needs requirements rebuild for
+      # python_speech_features + storage/models/lr_asd.pth present).
+      ENABLE_ASD: True
+
       TTS_PROVIDER: f5
 
       # Speech / TTS
