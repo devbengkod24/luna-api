@@ -12,8 +12,16 @@ from src.domain.entities.vision import (
     TrackedFaceData,
     VisionResult,
 )
+from src.domain.image import Image
 from src.ports.services import IFaceService
-from src.ports.vision import IEmotionDetectionService, IFaceRecognitionService, ITrackerService
+from src.ports.vision import (
+    IEmotionDetectionService,
+    IFaceAligner,
+    IFaceDetector,
+    IFaceEmbedder,
+    IImageDecoder,
+    ITrackerService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +31,18 @@ class VisionUseCase:
 
     def __init__(
         self,
-        face_recognition: IFaceRecognitionService,
+        image_decoder: IImageDecoder,
+        face_detector: IFaceDetector,
+        face_aligner: IFaceAligner,
+        face_embedder: IFaceEmbedder,
         face_store: Optional[IFaceService] = None,
         tracker: Optional[ITrackerService] = None,
         emotion_detection: Optional[IEmotionDetectionService] = None,
     ):
-        self.face_recognition = face_recognition
+        self.image_decoder = image_decoder
+        self.face_detector = face_detector
+        self.face_aligner = face_aligner
+        self.face_embedder = face_embedder
         self.face_store = face_store
         self.tracker = tracker
         self.emotion_detection = emotion_detection
@@ -60,11 +74,11 @@ class VisionUseCase:
     # --- Recognition ---
 
     async def _recognize(
-        self, state: TrackState, aligned_face, quality: float
+        self, state: TrackState, aligned_face: Image, quality: float
     ) -> Optional[Identity]:
         state.record_recognition_attempt(quality)
 
-        embedding = await asyncio.to_thread(self.face_recognition.extract_embedding, aligned_face)
+        embedding = await self.face_embedder.embed(aligned_face)
         if not embedding:
             return None
         state.last_embedding = embedding
@@ -72,25 +86,28 @@ class VisionUseCase:
         if not self.face_store:
             return None
 
-        match = await self.face_store.search_face(embedding, threshold=self.similarity_threshold)
+        match = await self.face_store.search_face(
+            embedding, threshold=self.similarity_threshold
+        )
         if not match:
             return None
 
         face, score = match
-        identity = Identity(face_id=face.id, name=face.name, nim=face.nim, similarity_score=score)
+        identity = Identity(
+            face_id=face.id, name=face.name, nim=face.nim, similarity_score=score
+        )
         state.bind_identity(identity)
         return identity
 
     # --- Per-track processing ---
 
     async def _process_track(
-        self, tracked: TrackedFaceData, frame, frame_id: int
+        self, tracked: TrackedFaceData, frame: Image, frame_id: int
     ) -> VisionResult:
         state = self._get_state(tracked.track_id, frame_id)
         if tracked.landmark:
             state.last_landmark = tracked.landmark
 
-        # Defaults — use cached values if already recognized
         name, nim, face_id = "Unknown", None, None
         face_conf = tracked.confidence
         emotion, emotion_conf = state.last_emotion, state.last_emotion_confidence
@@ -101,36 +118,36 @@ class VisionUseCase:
             face_id = state.identity.face_id
             face_conf = state.identity.similarity_score
 
-        aligned = None
-        if tracked.landmark:
-            aligned = await asyncio.to_thread(self.face_recognition.align_face, frame, tracked.landmark)
-
-        # Build parallel tasks
-        tasks, labels = [], []
-
+        # Decide what this frame needs BEFORE running the (expensive) align.
+        # Align is only worthwhile if at least one downstream step will consume
+        # it; in steady state most frames need neither (identity already bound,
+        # emotion sampled at interval), so skipping the align here cuts a real
+        # chunk of CPU/GPU time at high FPS.
         need_recognition = (
-            aligned is not None
+            tracked.landmark is not None
             and self.face_store is not None
             and state.should_retry_recognition(
                 tracked.confidence, self.retry_interval, self.max_attempts
             )
         )
-        if need_recognition:
-            tasks.append(self._recognize(state, aligned, tracked.confidence))
-            labels.append("recognition")
-
         need_emotion = (
-            aligned is not None
+            tracked.landmark is not None
             and self.emotion_detection is not None
             and state.should_detect_emotion(frame_id, self.emotion_interval)
         )
-        if need_emotion:
-            tasks.append(asyncio.to_thread(
-                self.emotion_detection.detect_emotion_with_context,
-                aligned,
-                frame,
-                tracked.bbox,
-            ))
+
+        aligned: Optional[Image] = None
+        if tracked.landmark and (need_recognition or need_emotion):
+            aligned = await self.face_aligner.align(frame, tracked.landmark)
+
+        tasks, labels = [], []
+        if need_recognition and aligned is not None:
+            tasks.append(self._recognize(state, aligned, tracked.confidence))
+            labels.append("recognition")
+        if need_emotion and aligned is not None:
+            tasks.append(
+                self.emotion_detection.detect_emotion_with_context(aligned, frame, tracked.bbox)
+            )
             labels.append("emotion")
 
         for label, result in zip(labels, await asyncio.gather(*tasks)):
@@ -154,19 +171,19 @@ class VisionUseCase:
     # --- Main entry point ---
 
     async def execute(self, frame_bytes: bytes, frame_id: int = 0) -> List[VisionResult]:
-        frame = await asyncio.to_thread(self.face_recognition.decode_from_bytes, frame_bytes)
+        frame = await self.image_decoder.decode(frame_bytes)
         if frame is None:
             return []
 
-        detections = await asyncio.to_thread(self.face_recognition.detect_faces_only_from_array, frame)
+        detections = await self.face_detector.detect(frame)
         if not detections:
             if self.tracker:
-                _, dead = self.tracker.track([], frame_id)
+                _, dead = await self.tracker.track([], frame_id)
                 self._cleanup_dead(dead)
             return []
 
         if self.tracker:
-            tracked_faces, dead = self.tracker.track(detections, frame_id)
+            tracked_faces, dead = await self.tracker.track(detections, frame_id)
             self._cleanup_dead(dead)
         else:
             tracked_faces = [
@@ -187,7 +204,7 @@ class VisionUseCase:
             self._process_track(t, frame, frame_id) for t in tracked_faces
         ]))
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         if self.tracker:
-            self.tracker.reset()
+            await self.tracker.reset()
         self._states.clear()

@@ -1,5 +1,6 @@
 """ByteTrack adapter for multi-face tracking."""
 
+import asyncio
 import logging
 from typing import List, Set, Tuple
 
@@ -7,14 +8,18 @@ import numpy as np
 from ioutrack import ByteTrack
 
 from src.config import settings
-from src.domain.entities.vision import BoundingBox, FaceDetection, Landmark, TrackedFaceData
+from src.domain.entities.vision import BoundingBox, FaceDetection, TrackedFaceData
 from src.ports.vision import ITrackerService
 
 logger = logging.getLogger(__name__)
 
 
 class TrackerService(ITrackerService):
-    """ByteTrack tracker — associates detections across frames."""
+    """ByteTrack tracker — associates detections across frames.
+
+    Public methods are async per the port contract; the actual ByteTrack
+    update runs in a worker thread.
+    """
 
     def __init__(
         self,
@@ -30,7 +35,7 @@ class TrackerService(ITrackerService):
         self._active: Set[int] = set()
         self._prev: Set[int] = set()
 
-    def track(
+    def _track_sync(
         self, detections: List[FaceDetection], frame_id: int
     ) -> Tuple[List[TrackedFaceData], List[int]]:
         self._prev = self._active.copy()
@@ -72,10 +77,18 @@ class TrackerService(ITrackerService):
         self._active = current
         return results, list(self._prev - current)
 
-    def reset(self) -> None:
+    def _reset_sync(self) -> None:
         self.tracker.reset()
         self._active.clear()
         self._prev.clear()
 
-    def get_active_track_ids(self) -> List[int]:
+    async def track(
+        self, detections: List[FaceDetection], frame_id: int
+    ) -> Tuple[List[TrackedFaceData], List[int]]:
+        return await asyncio.to_thread(self._track_sync, detections, frame_id)
+
+    async def reset(self) -> None:
+        await asyncio.to_thread(self._reset_sync)
+
+    async def get_active_track_ids(self) -> List[int]:
         return list(self._active)

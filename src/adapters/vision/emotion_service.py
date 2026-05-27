@@ -1,14 +1,15 @@
 """HuggingFace ViT emotion detection adapter."""
 
+import asyncio
 import io
 import logging
 
-import numpy as np
 import torch
-from PIL import Image
+from PIL import Image as PILImage
 
 from src.config import settings
 from src.domain.entities.vision import DetectedEmotion
+from src.domain.image import Image
 from src.ports.vision import IEmotionDetectionService
 
 logger = logging.getLogger(__name__)
@@ -29,29 +30,43 @@ class EmotionDetectionService(IEmotionDetectionService):
         self.model.eval()
         self.id2label = self.model.config.id2label
 
-        logger.info("EmotionDetection initialized: model=%s device=%s", model_name, self.device)
+        logger.info(
+            "EmotionDetection initialized: model=%s device=%s",
+            model_name, self.device,
+        )
 
-    def _predict(self, image: Image.Image) -> DetectedEmotion:
+    def _predict(self, image: PILImage.Image) -> DetectedEmotion:
         try:
-            inputs = {k: v.to(self.device) for k, v in self.processor(images=image, return_tensors="pt").items()}
+            inputs = {
+                k: v.to(self.device)
+                for k, v in self.processor(images=image, return_tensors="pt").items()
+            }
             with torch.no_grad():
                 probs = torch.nn.functional.softmax(self.model(**inputs).logits, dim=-1)[0]
             cls = int(torch.argmax(probs).item())
-            return DetectedEmotion(emotion=self.id2label[cls], confidence=float(probs[cls].item()))
+            return DetectedEmotion(
+                emotion=self.id2label[cls], confidence=float(probs[cls].item())
+            )
         except Exception as e:
             logger.warning("EmotionDetection failed: %s", e)
             return DetectedEmotion(emotion="neutral", confidence=0.0)
 
-    def detect_emotion(self, face_crop_bytes: bytes) -> DetectedEmotion:
+    def _detect_emotion_sync(self, face_crop_bytes: bytes) -> DetectedEmotion:
         try:
-            return self._predict(Image.open(io.BytesIO(face_crop_bytes)).convert("RGB"))
+            return self._predict(PILImage.open(io.BytesIO(face_crop_bytes)).convert("RGB"))
         except Exception as e:
             logger.warning("detect_emotion (bytes) failed: %s", e)
             return DetectedEmotion(emotion="neutral", confidence=0.0)
 
-    def detect_emotion_from_array(self, face_image: np.ndarray) -> DetectedEmotion:
+    def _detect_emotion_from_array_sync(self, face_image) -> DetectedEmotion:
         try:
-            return self._predict(Image.fromarray(face_image[:, :, ::-1]))  # BGR → RGB
+            return self._predict(PILImage.fromarray(face_image[:, :, ::-1]))  # BGR → RGB
         except Exception as e:
             logger.warning("detect_emotion (array) failed: %s", e)
             return DetectedEmotion(emotion="neutral", confidence=0.0)
+
+    async def detect_emotion(self, face_crop_bytes: bytes) -> DetectedEmotion:
+        return await asyncio.to_thread(self._detect_emotion_sync, face_crop_bytes)
+
+    async def detect_emotion_from_image(self, face_image: Image) -> DetectedEmotion:
+        return await asyncio.to_thread(self._detect_emotion_from_array_sync, face_image.raw)

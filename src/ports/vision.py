@@ -1,113 +1,125 @@
-"""Vision port interfaces."""
-from abc import ABC, abstractmethod
-from typing import Optional, List, Tuple
+"""Vision port interfaces (split per ISP).
 
-import numpy as np
+`IFaceRecognitionService` is a composite that implementations may satisfy,
+but use cases should depend on the narrower port they actually need.
+"""
+
+from abc import ABC, abstractmethod
+from typing import List, Optional, Tuple
 
 from src.domain.entities.vision import (
-    DetectedFace,
-    DetectedEmotion,
-    FaceDetection,
     BoundingBox,
+    DetectedEmotion,
+    DetectedFace,
+    FaceDetection,
     Landmark,
     TrackedFaceData,
 )
+from src.domain.image import Image
 
 
-class IFaceRecognitionService(ABC):
-    """Interface for face recognition adapter using InsightFace.
-    
-    Supports two modes:
-    1. Detection + Recognition combined (legacy, for registration)
-    2. Separate detection and recognition (for streaming pipeline)
+class IImageDecoder(ABC):
+    """Decode raw bytes into a domain Image."""
+
+    @abstractmethod
+    async def decode(self, image_bytes: bytes) -> Optional[Image]:
+        ...
+
+
+class IFaceDetector(ABC):
+    """Detect faces in an image."""
+
+    @abstractmethod
+    async def detect_with_embedding(self, image_bytes: bytes) -> List[DetectedFace]:
+        """Detect faces and extract embeddings (registration path)."""
+        ...
+
+    @abstractmethod
+    async def detect_from_bytes(self, image_bytes: bytes) -> List[FaceDetection]:
+        """Detect faces without embeddings from raw bytes."""
+        ...
+
+    @abstractmethod
+    async def detect(self, image: Image) -> List[FaceDetection]:
+        """Detect faces without embeddings from a decoded image."""
+        ...
+
+
+class IFaceAligner(ABC):
+    """Align a face to a canonical pose using landmarks."""
+
+    @abstractmethod
+    async def align(
+        self,
+        image: Image,
+        landmark: Landmark,
+        output_size: Tuple[int, int] = (112, 112),
+    ) -> Optional[Image]:
+        ...
+
+
+class IFaceEmbedder(ABC):
+    """Extract an embedding from an aligned face."""
+
+    @abstractmethod
+    async def embed(self, aligned_face: Image) -> Optional[List[float]]:
+        ...
+
+
+class IFaceCropper(ABC):
+    """Crop a region of an image around a bbox."""
+
+    @abstractmethod
+    async def crop(
+        self, image: Image, bbox: BoundingBox, padding: float = 0.1
+    ) -> Optional[Image]:
+        ...
+
+
+class IFaceRecognitionService(
+    IImageDecoder, IFaceDetector, IFaceAligner, IFaceEmbedder, IFaceCropper
+):
+    """Composite that bundles every face-recognition capability.
+
+    Adapters that ship as one library (e.g. InsightFace) implement this; use
+    cases should depend on the smaller ports above where possible.
     """
-    
-    @abstractmethod
-    def detect_faces(self, image_bytes: bytes) -> List[DetectedFace]:
-        """Detect faces and extract embeddings (for face registration)."""
-        ...
-    
-    @abstractmethod
-    def detect_faces_only(self, image_bytes: bytes) -> List[FaceDetection]:
-        """Detect faces without embeddings (streaming pipeline)."""
-        ...
-
-    @abstractmethod
-    def detect_faces_only_from_array(self, image: np.ndarray) -> List[FaceDetection]:
-        """Detect faces from BGR numpy array without embeddings."""
-        ...
-
-    @abstractmethod
-    def align_face(
-        self, image: np.ndarray, landmark: Landmark, output_size: Tuple[int, int] = (112, 112)
-    ) -> Optional[np.ndarray]:
-        """Align face using 5-point landmarks (ArcFace standard)."""
-        ...
-
-    @abstractmethod
-    def extract_embedding(self, aligned_face: np.ndarray) -> Optional[List[float]]:
-        """Extract 512-d normalized embedding from aligned face (112×112 BGR)."""
-        ...
-
-    @abstractmethod
-    def crop_face(self, image: np.ndarray, bbox: BoundingBox, padding: float = 0.1) -> Optional[np.ndarray]:
-        """Crop face region with padding."""
-        ...
-
-    @abstractmethod
-    def decode_from_bytes(self, image_bytes: bytes) -> Optional[np.ndarray]:
-        """Decode image bytes to BGR numpy array."""
-        ...
 
 
 class ITrackerService(ABC):
     """Interface for object/person tracking across frames."""
-    
+
     @abstractmethod
-    def track(
-        self, 
-        detections: List[FaceDetection], 
-        frame_id: int
-    ) -> Tuple[List["TrackedFaceData"], List[int]]:
-        """Update tracker with new detections."""
+    async def track(
+        self, detections: List[FaceDetection], frame_id: int
+    ) -> Tuple[List[TrackedFaceData], List[int]]:
         ...
-    
+
     @abstractmethod
-    def reset(self):
-        """Reset tracker state (e.g., new video stream)."""
+    async def reset(self) -> None:
         ...
-    
+
     @abstractmethod
-    def get_active_track_ids(self) -> List[int]:
-        """Get list of currently active track IDs."""
+    async def get_active_track_ids(self) -> List[int]:
         ...
+
 
 class IEmotionDetectionService(ABC):
     """Interface for emotion detection."""
 
     @abstractmethod
-    def detect_emotion(
-        self, face_crop_bytes: bytes,
-    ) -> DetectedEmotion:
-        """Detect emotion from face region (bytes input)."""
+    async def detect_emotion(self, face_crop_bytes: bytes) -> DetectedEmotion:
         ...
 
     @abstractmethod
-    def detect_emotion_from_array(
-        self, face_image: np.ndarray,
-    ) -> DetectedEmotion:
-        """Detect emotion from face region (numpy array input)."""
+    async def detect_emotion_from_image(self, face_image: Image) -> DetectedEmotion:
         ...
 
-    def detect_emotion_with_context(
+    async def detect_emotion_with_context(
         self,
-        face_image: np.ndarray,
-        full_frame: np.ndarray,
-        bbox: "BoundingBox",
+        face_image: Image,
+        full_frame: Image,
+        bbox: BoundingBox,
     ) -> DetectedEmotion:
-        """Detect emotion with optional scene context (full frame + bounding box).
-
-        Default implementation ignores context and delegates to detect_emotion_from_array.
-        Override in adapters that support contextual fusion (e.g. EmoferService).
-        """
-        return self.detect_emotion_from_array(face_image)
+        """Optional contextual fusion; default falls back to face-only detection."""
+        return await self.detect_emotion_from_image(face_image)

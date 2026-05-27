@@ -1,7 +1,6 @@
 """Qdrant face vector store — implements IFaceService."""
 
 import logging
-import uuid
 from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -19,6 +18,10 @@ from qdrant_client.models import (
 from src.config import settings
 from src.domain.entities.face import FaceData
 from src.ports.services import IFaceService
+
+
+def _face_payload(face: FaceData) -> dict:
+    return {"name": face.name, "nim": face.nim}
 
 
 class FaceStore(IFaceService):
@@ -45,7 +48,7 @@ class FaceStore(IFaceService):
         point = PointStruct(
             id=face.id,
             vector=face.embedding,
-            payload=face.to_payload(),
+            payload=_face_payload(face),
         )
         await self.client.upsert(collection_name=self.collection_name, points=[point])
         return face.id

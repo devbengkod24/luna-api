@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Optional
 
 from src.domain.entities.face import RegisterFaceInput
+from src.ports.identifiers import IUuidGenerator
 from src.ports.services import IFaceService
-from src.ports.vision import IFaceRecognitionService
+from src.ports.vision import IFaceDetector
 from src.use_cases.face_use_case import RegisterFacesUseCase
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,11 @@ def _parse_filename(stem: str) -> tuple[str, Optional[str]]:
     return name_part.replace("_", " ").strip(), nim
 
 
-async def run(face_service: IFaceService, recognition: IFaceRecognitionService) -> None:
+async def run(
+    face_service: IFaceService,
+    face_detector: IFaceDetector,
+    uuid_generator: IUuidGenerator,
+) -> None:
     """Seed all faces from settings.faces_dir. Overwrites existing by NIM."""
     faces_dir = Path("storage/faces")
     if not faces_dir.exists():
@@ -52,7 +57,11 @@ async def run(face_service: IFaceService, recognition: IFaceRecognitionService) 
         return
 
     logger.info("Seeding %d face(s) from %s ...", len(items), faces_dir)
-    use_case = RegisterFacesUseCase(recognition=recognition, face_service=face_service)
+    use_case = RegisterFacesUseCase(
+        face_detector=face_detector,
+        face_service=face_service,
+        uuid_generator=uuid_generator,
+    )
     results = await use_case.execute(faces=items, skip_existing=False)
 
     success = sum(1 for r in results if r.success)

@@ -1,13 +1,13 @@
 """Face use cases — register, list, get, delete."""
 
-import asyncio
 import base64
 import logging
 from typing import List, Optional, Tuple
 
 from src.domain.entities.face import FaceData, FaceRegistrationResult, RegisterFaceInput
+from src.ports.identifiers import IUuidGenerator
 from src.ports.services import IFaceService
-from src.ports.vision import IFaceRecognitionService
+from src.ports.vision import IFaceDetector
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +15,15 @@ logger = logging.getLogger(__name__)
 class RegisterFacesUseCase:
     """Register one or multiple faces: detect embedding then store in Qdrant."""
 
-    def __init__(self, recognition: IFaceRecognitionService, face_service: IFaceService):
-        self.recognition = recognition
+    def __init__(
+        self,
+        face_detector: IFaceDetector,
+        face_service: IFaceService,
+        uuid_generator: IUuidGenerator,
+    ):
+        self.face_detector = face_detector
         self.face_service = face_service
+        self.uuid_generator = uuid_generator
 
     async def execute(
         self,
@@ -41,7 +47,7 @@ class RegisterFacesUseCase:
         except Exception:
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Invalid base64 image")
         try:
-            detected = await asyncio.to_thread(self.recognition.detect_faces, image_bytes)
+            detected = await self.face_detector.detect_with_embedding(image_bytes)
         except Exception as e:
             logger.error("Face detection error: %s", e, exc_info=True)
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Face detection failed")
@@ -71,7 +77,7 @@ class RegisterFacesUseCase:
                 success=False, face_id=existing.id, name=existing.name, nim=existing.nim,
                 message=f"Face with NIM {nim} already registered."
             )
-        face_id = existing.id if existing else str(__import__("uuid").uuid4())
+        face_id = existing.id if existing else self.uuid_generator.new_id()
         face = FaceData(id=face_id, name=name, nim=nim, embedding=embedding)
         try:
             await self.face_service.add_face(face)

@@ -1,5 +1,6 @@
 """EmoferService: emotion detection using VAD multi-task ONNX + optional Emotic fusion."""
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -9,6 +10,7 @@ import numpy as np
 
 from src.config import settings
 from src.domain.entities.vision import BoundingBox, DetectedEmotion
+from src.domain.image import Image
 from src.ports.vision import IEmotionDetectionService
 
 logger = logging.getLogger(__name__)
@@ -50,13 +52,18 @@ class EmoferService(IEmotionDetectionService):
                 self._emotic = EmoticModel(emotic_path)
                 logger.info("EmoferService: EmoticModel loaded from %s", emotic_path)
             except Exception as e:
-                logger.warning("EmoferService: EmoticModel failed to load (running without it): %s", e)
+                logger.warning(
+                    "EmoferService: EmoticModel failed to load (running without it): %s", e
+                )
         else:
-            logger.info("EmoferService: EmoticModel not found at %s, using VAD-only mode", emotic_path)
+            logger.info(
+                "EmoferService: EmoticModel not found at %s, using VAD-only mode",
+                emotic_path,
+            )
 
-    # --- IEmotionDetectionService ---
+    # --- Sync helpers ---
 
-    def detect_emotion(self, face_crop_bytes: bytes) -> DetectedEmotion:
+    def _detect_emotion_sync(self, face_crop_bytes: bytes) -> DetectedEmotion:
         try:
             arr = np.frombuffer(face_crop_bytes, dtype=np.uint8)
             bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -67,23 +74,20 @@ class EmoferService(IEmotionDetectionService):
             logger.warning("EmoferService.detect_emotion failed: %s", e)
             return DetectedEmotion(emotion="neutral", confidence=0.0)
 
-    def detect_emotion_from_array(self, face_image: np.ndarray) -> DetectedEmotion:
+    def _detect_emotion_from_array_sync(self, face_image: np.ndarray) -> DetectedEmotion:
         try:
             return self._run_vad(face_image)
         except Exception as e:
             logger.warning("EmoferService.detect_emotion_from_array failed: %s", e)
             return DetectedEmotion(emotion="neutral", confidence=0.0)
 
-    def detect_emotion_with_context(
+    def _detect_emotion_with_context_sync(
         self,
         face_image: np.ndarray,
         full_frame: np.ndarray,
         bbox: BoundingBox,
     ) -> DetectedEmotion:
-        """VAD + Emotic fusion with bi-directional filtering.
-
-        Falls back to VAD-only when EmoticModel is not loaded or inference fails.
-        """
+        """VAD + Emotic fusion with bi-directional filtering."""
         try:
             vad = self._vad.predict(face_image)
             if vad is None:
@@ -105,7 +109,28 @@ class EmoferService(IEmotionDetectionService):
 
         except Exception as e:
             logger.warning("EmoferService.detect_emotion_with_context failed: %s", e)
-            return self.detect_emotion_from_array(face_image)
+            return self._detect_emotion_from_array_sync(face_image)
+
+    # --- Async port methods ---
+
+    async def detect_emotion(self, face_crop_bytes: bytes) -> DetectedEmotion:
+        return await asyncio.to_thread(self._detect_emotion_sync, face_crop_bytes)
+
+    async def detect_emotion_from_image(self, face_image: Image) -> DetectedEmotion:
+        return await asyncio.to_thread(self._detect_emotion_from_array_sync, face_image.raw)
+
+    async def detect_emotion_with_context(
+        self,
+        face_image: Image,
+        full_frame: Image,
+        bbox: BoundingBox,
+    ) -> DetectedEmotion:
+        return await asyncio.to_thread(
+            self._detect_emotion_with_context_sync,
+            face_image.raw,
+            full_frame.raw,
+            bbox,
+        )
 
     # --- Helpers ---
 
@@ -129,7 +154,6 @@ class EmoferService(IEmotionDetectionService):
         suppress = _SUPPRESS_RULES.get(fer_emotion, set())
         valence = vad["valence"]
 
-        # Valence-aware neutral relief
         if fer_emotion == "neutral" and valence < -0.1:
             suppress = suppress - {"Sadness", "Shame", "Disconnect"}
 

@@ -16,12 +16,13 @@ logger = logging.getLogger("seeder")
 
 async def _run_face() -> None:
     from src.adapters import FaceStore, FaceRecognitionService
+    from src.adapters.identifiers import StdUuidGenerator
     from src.seeder import face_seeder
 
     face_service = FaceStore()
     await face_service.initialize()
     recognition = FaceRecognitionService()
-    await face_seeder.run(face_service, recognition)
+    await face_seeder.run(face_service, recognition, StdUuidGenerator())
 
 
 async def _run_rag() -> None:
