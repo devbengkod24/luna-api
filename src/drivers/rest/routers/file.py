@@ -86,4 +86,6 @@ async def ingest_files(
     """Vectorize file(s) into Qdrant."""
     logger.info("Ingest request: file_id=%s, tags=%s", request.file_id, request.tags)
     result = await use_case.execute(file_id=request.file_id, tags=request.tags)
+    if not result["success"] and result.get("indexed", 0) == 0 and result.get("failed", 0) == 0:
+        raise HTTPException(status_code=404, detail=result.get("message", "File not found"))
     return IngestResponse(**result)

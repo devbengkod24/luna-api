@@ -1,7 +1,6 @@
 """Application configuration."""
 
 from functools import lru_cache
-from typing import Set, List
 
 from pydantic import Field
 from pydantic import field_validator
@@ -109,7 +108,7 @@ class Settings(BaseSettings):
 
     persist_dir: str = "storage/index"
     rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
-    rag_allowed_extensions: Set[str] = {".pdf", ".txt", ".docx", ".doc", ".md"}
+    rag_allowed_extensions: set[str] = {".pdf", ".txt", ".docx", ".doc", ".md"}
     rag_chunk_strategy: str = Field(
         default="semantic", alias="RAG_CHUNK_STRATEGY"
     )  # "token" | "semantic"
@@ -243,7 +242,7 @@ class Settings(BaseSettings):
     frame_timeout_seconds: float = 5.0
 
     # CORS
-    cors_origins: List[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")
+    cors_origins: list[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")
 
     # Request / streaming
     request_id_header: str = Field(default="X-Request-ID", alias="REQUEST_ID_HEADER")
@@ -267,19 +266,6 @@ class Settings(BaseSettings):
                 return v
             return [part.strip() for part in raw.split(",") if part.strip()]
         return v
-
-    # @field_validator("ollama_max_tokens")
-    # @classmethod
-    # def _validate_ollama_budget(cls, v, info):
-    #     data = info.data or {}
-    #     num_ctx = int(data.get("ollama_num_ctx") or 0)
-    #     safety = int(data.get("ollama_ctx_safety_margin") or 0)
-    #     if num_ctx and v >= max(1, num_ctx - safety):
-    #         raise ValueError(
-    #             f"OLLAMA_MAX_TOKENS must be < OLLAMA_NUM_CTX - safety_margin "
-    #             f"({v} >= {num_ctx} - {safety})"
-    #         )
-    #     return v
 
 
 @lru_cache()

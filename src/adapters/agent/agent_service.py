@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import Any, AsyncGenerator, List, Optional
+from typing import Any, AsyncGenerator
 from langchain.agents import create_agent
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import AIMessage as LCAIMessage, HumanMessage, SystemMessage, ToolMessage as LCToolMessage
@@ -153,8 +153,8 @@ class LangchainAgentService(IAgentService):
     async def generate_stream(
         self,
         user_input: str,
-        messages: List[Message],
-        context: Optional[UserContext] = None,
+        messages: list[Message],
+        context: UserContext | None = None,
         system_prompt: str | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         try:

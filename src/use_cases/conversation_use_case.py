@@ -1,7 +1,5 @@
 """Conversation use cases — CRUD for conversations and message list/delete."""
 
-from typing import Optional
-
 from src.domain.entities import Conversation, Message
 from src.ports.repositories import IConversationRepository, IMessageRepository
 
@@ -13,8 +11,8 @@ class ListConversationsUseCase:
     async def execute(
         self,
         limit: int = 20,
-        cursor: Optional[str] = None,
-    ) -> tuple[list[Conversation], Optional[str]]:
+        cursor: str | None = None,
+    ) -> tuple[list[Conversation], str | None]:
         return await self.conversation_repo.list_cursor(limit=limit, cursor=cursor)
 
 
@@ -22,7 +20,7 @@ class UpdateConversationUseCase:
     def __init__(self, conversation_repo: IConversationRepository):
         self.conversation_repo = conversation_repo
 
-    async def execute(self, conversation_id: str, title: str) -> Optional[Conversation]:
+    async def execute(self, conversation_id: str, title: str) -> Conversation | None:
         updated = await self.conversation_repo.update_title(id=conversation_id, title=title)
         if not updated:
             return None
@@ -45,8 +43,8 @@ class ListConversationMessagesUseCase:
         self,
         conversation_id: str,
         limit: int = 20,
-        cursor: Optional[str] = None,
-    ) -> tuple[list[Message], Optional[str]]:
+        cursor: str | None = None,
+    ) -> tuple[list[Message], str | None]:
         return await self.message_repo.get_by_conversation_id_cursor(
             conversation_id=conversation_id,
             limit=limit,

@@ -1,7 +1,6 @@
 """Vision domain entities."""
 from dataclasses import dataclass, field
 from time import time
-from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -13,17 +12,17 @@ class BoundingBox:
     width: int
     height: int
 
-    def to_list(self) -> List[int]:
+    def to_list(self) -> list[int]:
         return [self.x, self.y, self.width, self.height]
 
-    def to_xyxy(self) -> List[int]:
+    def to_xyxy(self) -> list[int]:
         return [self.x, self.y, self.x + self.width, self.y + self.height]
 
     def area(self) -> int:
         return self.width * self.height
 
     @classmethod
-    def from_list(cls, box: List[int]) -> "BoundingBox":
+    def from_list(cls, box: list[int]) -> "BoundingBox":
         if len(box) != 4:
             raise ValueError("BoundingBox.from_list expects [x, y, w, h]")
         x, y, w, h = box
@@ -45,13 +44,13 @@ class Landmark:
     Stored as a tuple of (x, y) pairs to keep numpy out of the domain.
     """
 
-    points: Tuple[Tuple[float, float], ...]
+    points: tuple[tuple[float, float], ...]
 
     def __post_init__(self) -> None:
         if len(self.points) != 5:
             raise ValueError(f"Landmark expects 5 points, got {len(self.points)}")
 
-    def to_list(self) -> List[List[float]]:
+    def to_list(self) -> list[list[float]]:
         return [[x, y] for (x, y) in self.points]
 
     @classmethod
@@ -79,7 +78,7 @@ class FaceDetection:
 
     bbox: BoundingBox
     confidence: float
-    landmark: Optional[Landmark] = None
+    landmark: Landmark | None = None
     detection_index: int = 0
 
 
@@ -90,8 +89,8 @@ class TrackedFaceData:
     track_id: int
     bbox: BoundingBox
     confidence: float
-    detection_index: Optional[int] = None
-    landmark: Optional[Landmark] = None
+    detection_index: int | None = None
+    landmark: Landmark | None = None
 
 
 @dataclass
@@ -100,7 +99,7 @@ class Identity:
 
     face_id: str
     name: str
-    nim: Optional[str] = None
+    nim: str | None = None
     similarity_score: float = 0.0
 
 
@@ -109,12 +108,12 @@ class TrackState:
     """Per-track state: identity cache, recognition retry control, emotion cache."""
 
     track_id: int
-    identity: Optional[Identity] = None
+    identity: Identity | None = None
     recognition_attempts: int = 0
     last_recognition_time: float = 0.0
     last_recognition_quality: float = 0.0
-    last_landmark: Optional[Landmark] = None
-    last_embedding: Optional[List[float]] = None
+    last_landmark: Landmark | None = None
+    last_embedding: list[float] | None = None
     last_emotion: str = "neutral"
     last_emotion_confidence: float = 0.0
     last_emotion_frame: int = 0
@@ -171,10 +170,10 @@ class VisionResult:
     bbox: BoundingBox
     confidence: Confidence
     name: str = "Unknown"
-    nim: Optional[str] = None
+    nim: str | None = None
     emotion: str = "neutral"
-    face_id: Optional[str] = None
-    track_id: Optional[int] = None
+    face_id: str | None = None
+    track_id: int | None = None
 
 
 @dataclass
@@ -182,11 +181,11 @@ class DetectedFace:
     """Detected face with embedding for registration."""
 
     bbox: BoundingBox
-    embedding: List[float]
+    embedding: list[float]
     confidence: float = 0.0
-    crop_bytes: Optional[bytes] = None
-    detection_index: Optional[int] = None
-    landmark: Optional[Landmark] = None
+    crop_bytes: bytes | None = None
+    detection_index: int | None = None
+    landmark: Landmark | None = None
 
 
 @dataclass
@@ -210,5 +209,5 @@ class DirectednessVerdict:
     facing_score: float = 0.0
     asd_score: float = 0.0
     asd_active_ratio: float = 0.0
-    candidate_track_id: Optional[int] = None
+    candidate_track_id: int | None = None
     reason: str = "directed"

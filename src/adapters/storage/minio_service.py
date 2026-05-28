@@ -1,6 +1,7 @@
 """MinIO storage service implementation."""
 import asyncio
 import io
+import logging
 
 from minio import Minio
 from minio.error import S3Error
@@ -8,6 +9,8 @@ from minio.error import S3Error
 from src.ports.services import IStorageService
 from src.config import settings
 from src.shared.exceptions import InternalServerException
+
+logger = logging.getLogger(__name__)
 
 
 class MinIOStorageService(IStorageService):
@@ -28,7 +31,8 @@ class MinIOStorageService(IStorageService):
             if not self.client.bucket_exists(self.bucket_name):
                 self.client.make_bucket(self.bucket_name)
         except S3Error as e:
-            raise InternalServerException(f"MinIO error: {str(e)}")
+            logger.error("MinIO bucket initialization failed: %s", e)
+            raise InternalServerException("Storage service initialization failed")
 
     async def upload_file(self, file_content: bytes, filename: str, content_type: str) -> str:
         try:
@@ -42,7 +46,8 @@ class MinIOStorageService(IStorageService):
             )
             return filename
         except S3Error as e:
-            raise InternalServerException(f"Upload failed: {str(e)}")
+            logger.error("MinIO upload failed for %s: %s", filename, e)
+            raise InternalServerException("File upload failed")
 
     async def download_file(self, storage_path: str) -> bytes:
         def _read() -> bytes:
@@ -56,7 +61,8 @@ class MinIOStorageService(IStorageService):
         try:
             return await asyncio.to_thread(_read)
         except S3Error as e:
-            raise InternalServerException(f"Download failed: {str(e)}")
+            logger.error("MinIO download failed for %s: %s", storage_path, e)
+            raise InternalServerException("File download failed")
 
     async def delete_file(self, storage_path: str) -> bool:
         try:

@@ -4,8 +4,8 @@ These are domain-level DTOs that cross from use cases to drivers (SSE/WS).
 Drivers are responsible for serializing them to the wire format.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from dataclasses import dataclass
+from typing import Any
 
 from src.domain.entities.response import AIMessage, ToolMessage
 
@@ -76,14 +76,14 @@ class DoneEvent:
     type: str = "done"
 
 
-StreamEvent = Union[
-    LogEvent,
-    TokenEvent,
-    ToolCallEvent,
-    ToolResultEvent,
-    AssistantEvent,
-    TranscriptEvent,
-    AudioEvent,
-    ErrorEvent,
-    DoneEvent,
-]
+StreamEvent = (
+    LogEvent
+    | TokenEvent
+    | ToolCallEvent
+    | ToolResultEvent
+    | AssistantEvent
+    | TranscriptEvent
+    | AudioEvent
+    | ErrorEvent
+    | DoneEvent
+)

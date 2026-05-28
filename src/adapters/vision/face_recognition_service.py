@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -37,7 +36,7 @@ def _estimate_norm(landmark: Landmark, size: int = 112) -> np.ndarray:
     return tform.params[0:2, :]
 
 
-def _wrap_image(arr: Optional[np.ndarray]) -> Optional[Image]:
+def _wrap_image(arr: np.ndarray | None) -> Image | None:
     if arr is None:
         return None
     h, w = arr.shape[:2]
@@ -48,7 +47,7 @@ def _unwrap(image: Image) -> np.ndarray:
     return image.raw
 
 
-def _parse_face(face, idx: int) -> Optional[FaceDetection]:
+def _parse_face(face, idx: int) -> FaceDetection | None:
     bbox = face.bbox.astype(int)
     x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
     if x2 <= x1 or y2 <= y1:
@@ -93,7 +92,7 @@ class FaceRecognitionService(IFaceRecognitionService):
 
     # --- Sync helpers (run inside asyncio.to_thread; safe to chain) ---
 
-    def _decode_sync(self, image_bytes: bytes) -> Optional[np.ndarray]:
+    def _decode_sync(self, image_bytes: bytes) -> np.ndarray | None:
         try:
             arr = np.frombuffer(image_bytes, np.uint8)
             return cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -101,7 +100,7 @@ class FaceRecognitionService(IFaceRecognitionService):
             logger.warning("decode failed: %s", e)
             return None
 
-    def _detect_with_embedding_sync(self, image_bytes: bytes) -> List[DetectedFace]:
+    def _detect_with_embedding_sync(self, image_bytes: bytes) -> list[DetectedFace]:
         img = self._decode_sync(image_bytes)
         if img is None:
             return []
@@ -120,7 +119,7 @@ class FaceRecognitionService(IFaceRecognitionService):
             ))
         return results
 
-    def _detect_from_array_sync(self, img: np.ndarray) -> List[FaceDetection]:
+    def _detect_from_array_sync(self, img: np.ndarray) -> list[FaceDetection]:
         det_model = self.app.models.get("detection")
         if det_model is not None:
             bboxes, kpss = det_model.detect(img, max_num=0, metric="default")
@@ -138,7 +137,7 @@ class FaceRecognitionService(IFaceRecognitionService):
             d for d in (_parse_face(f, i) for i, f in enumerate(raw_faces)) if d is not None
         ]
 
-    def _detect_from_bytes_sync(self, image_bytes: bytes) -> List[FaceDetection]:
+    def _detect_from_bytes_sync(self, image_bytes: bytes) -> list[FaceDetection]:
         img = self._decode_sync(image_bytes)
         return self._detect_from_array_sync(img) if img is not None else []
 
@@ -146,8 +145,8 @@ class FaceRecognitionService(IFaceRecognitionService):
         self,
         image: np.ndarray,
         landmark: Landmark,
-        output_size: Tuple[int, int] = (112, 112),
-    ) -> Optional[np.ndarray]:
+        output_size: tuple[int, int] = (112, 112),
+    ) -> np.ndarray | None:
         try:
             M = _estimate_norm(landmark, output_size[0])
             return cv2.warpAffine(image, M, output_size, borderValue=0.0)
@@ -155,7 +154,7 @@ class FaceRecognitionService(IFaceRecognitionService):
             logger.warning("align failed: %s", e)
             return None
 
-    def _embed_sync(self, aligned_face: np.ndarray) -> Optional[List[float]]:
+    def _embed_sync(self, aligned_face: np.ndarray) -> list[float] | None:
         if self._rec_model is None:
             return None
         try:
@@ -172,7 +171,7 @@ class FaceRecognitionService(IFaceRecognitionService):
 
     def _crop_sync(
         self, image: np.ndarray, bbox: BoundingBox, padding: float = 0.1
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         try:
             h, w = image.shape[:2]
             pad_x, pad_y = int(bbox.width * padding), int(bbox.height * padding)
@@ -189,33 +188,33 @@ class FaceRecognitionService(IFaceRecognitionService):
 
     # --- Async port methods ---
 
-    async def decode(self, image_bytes: bytes) -> Optional[Image]:
+    async def decode(self, image_bytes: bytes) -> Image | None:
         arr = await asyncio.to_thread(self._decode_sync, image_bytes)
         return _wrap_image(arr)
 
-    async def detect_with_embedding(self, image_bytes: bytes) -> List[DetectedFace]:
+    async def detect_with_embedding(self, image_bytes: bytes) -> list[DetectedFace]:
         return await asyncio.to_thread(self._detect_with_embedding_sync, image_bytes)
 
-    async def detect_from_bytes(self, image_bytes: bytes) -> List[FaceDetection]:
+    async def detect_from_bytes(self, image_bytes: bytes) -> list[FaceDetection]:
         return await asyncio.to_thread(self._detect_from_bytes_sync, image_bytes)
 
-    async def detect(self, image: Image) -> List[FaceDetection]:
+    async def detect(self, image: Image) -> list[FaceDetection]:
         return await asyncio.to_thread(self._detect_from_array_sync, _unwrap(image))
 
     async def align(
         self,
         image: Image,
         landmark: Landmark,
-        output_size: Tuple[int, int] = (112, 112),
-    ) -> Optional[Image]:
+        output_size: tuple[int, int] = (112, 112),
+    ) -> Image | None:
         arr = await asyncio.to_thread(self._align_sync, _unwrap(image), landmark, output_size)
         return _wrap_image(arr)
 
-    async def embed(self, aligned_face: Image) -> Optional[List[float]]:
+    async def embed(self, aligned_face: Image) -> list[float] | None:
         return await asyncio.to_thread(self._embed_sync, _unwrap(aligned_face))
 
     async def crop(
         self, image: Image, bbox: BoundingBox, padding: float = 0.1
-    ) -> Optional[Image]:
+    ) -> Image | None:
         arr = await asyncio.to_thread(self._crop_sync, _unwrap(image), bbox, padding)
         return _wrap_image(arr)

@@ -1,7 +1,6 @@
 import logging
 import asyncio
 from pathlib import Path
-from typing import List, Optional
 
 from llama_index.core import (
     Settings,
@@ -144,7 +143,7 @@ class LlamaIndexRAGService(IRAGService):
         self,
         file_id: str,
         file_path: str,
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
     ) -> bool:
         """Index document into vector store with file_id and tags as metadata."""
         if not self.storage_context:
@@ -178,9 +177,9 @@ class LlamaIndexRAGService(IRAGService):
     async def retrieve(
         self,
         query: str,
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
         limit: int = 5,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """Retrieve relevant documents, optionally filtered by tags."""
         if not self.vector_store or not self.storage_context:
             raise ServiceUnavailableException("RagService not initialized. Call initialize() first.")

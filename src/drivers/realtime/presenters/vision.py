@@ -1,7 +1,8 @@
 """Presenters for vision results — WS payload + delta diffing."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from src.domain.entities.vision import VisionResult
 
@@ -28,17 +29,17 @@ class VisionDeltaCalculator:
     A track is "updated" when any field of its serialized payload differs.
     """
 
-    _last: Dict[int, dict] = field(default_factory=dict)
+    _last: dict[int, dict] = field(default_factory=dict)
 
     def diff(self, results: Iterable[VisionResult]) -> dict[str, Any]:
-        current: Dict[int, dict] = {}
+        current: dict[int, dict] = {}
         for r in results:
             if r.track_id is None:
                 continue
             current[r.track_id] = vision_result_to_dict(r)
 
-        added: List[dict] = []
-        updated: List[dict] = []
+        added: list[dict] = []
+        updated: list[dict] = []
         for tid, payload in current.items():
             previous = self._last.get(tid)
             if previous is None:
@@ -46,7 +47,7 @@ class VisionDeltaCalculator:
             elif previous != payload:
                 updated.append(payload)
 
-        removed: List[int] = [tid for tid in self._last.keys() if tid not in current]
+        removed: list[int] = [tid for tid in self._last.keys() if tid not in current]
 
         self._last = current
         return {"added": added, "updated": updated, "removed": removed}
@@ -55,6 +56,6 @@ class VisionDeltaCalculator:
         self._last.clear()
 
 
-def full_snapshot(results: Iterable[VisionResult]) -> List[dict]:
+def full_snapshot(results: Iterable[VisionResult]) -> list[dict]:
     """Backward-compatible full snapshot payload."""
     return [vision_result_to_dict(r) for r in results if r.track_id is not None]

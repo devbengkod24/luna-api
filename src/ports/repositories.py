@@ -1,7 +1,6 @@
 """Repository port interfaces (persistence layer contracts)."""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
 
 from src.domain.entities import Conversation, Message, File
 
@@ -15,7 +14,7 @@ class IConversationRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_id(self, id: str) -> Optional[Conversation]:
+    async def get_by_id(self, id: str) -> Conversation | None:
         """Get conversation by UUID."""
         ...
 
@@ -23,8 +22,8 @@ class IConversationRepository(ABC):
     async def list_cursor(
         self,
         limit: int,
-        cursor: Optional[str] = None,
-    ) -> tuple[List[Conversation], Optional[str]]:
+        cursor: str | None = None,
+    ) -> tuple[list[Conversation], str | None]:
         """List conversations with cursor-based pagination. Returns (conversations, next_cursor)."""
         ...
 
@@ -48,19 +47,19 @@ class IMessageRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_id(self, id: str) -> Optional[Message]:
+    async def get_by_id(self, id: str) -> Message | None:
         """Get message by UUID."""
         ...
 
     @abstractmethod
-    async def get_by_conversation_id(self, conversation_id: str) -> List[Message]:
+    async def get_by_conversation_id(self, conversation_id: str) -> list[Message]:
         """Get all messages for a conversation, ordered by created_at."""
         ...
 
     @abstractmethod
     async def get_recent_by_conversation_id(
         self, conversation_id: str, limit: int
-    ) -> List[Message]:
+    ) -> list[Message]:
         """Get the most recent messages for a conversation, ordered by created_at."""
         ...
 
@@ -69,8 +68,8 @@ class IMessageRepository(ABC):
         self,
         conversation_id: str,
         limit: int,
-        cursor: Optional[str] = None,
-    ) -> tuple[List[Message], Optional[str]]:
+        cursor: str | None = None,
+    ) -> tuple[list[Message], str | None]:
         """Get messages for a conversation with cursor-based pagination. Returns (messages, next_cursor)."""
         ...
 
@@ -88,11 +87,11 @@ class IFileRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_id(self, id: str) -> Optional[File]:
+    async def get_by_id(self, id: str) -> File | None:
         ...
 
     @abstractmethod
-    async def list(self) -> List[File]:
+    async def list(self) -> list[File]:
         ...
 
     @abstractmethod

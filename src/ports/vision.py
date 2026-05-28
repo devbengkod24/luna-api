@@ -5,7 +5,6 @@ but use cases should depend on the narrower port they actually need.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple
 
 from src.domain.entities.vision import (
     BoundingBox,
@@ -22,7 +21,7 @@ class IImageDecoder(ABC):
     """Decode raw bytes into a domain Image."""
 
     @abstractmethod
-    async def decode(self, image_bytes: bytes) -> Optional[Image]:
+    async def decode(self, image_bytes: bytes) -> Image | None:
         ...
 
 
@@ -30,17 +29,17 @@ class IFaceDetector(ABC):
     """Detect faces in an image."""
 
     @abstractmethod
-    async def detect_with_embedding(self, image_bytes: bytes) -> List[DetectedFace]:
+    async def detect_with_embedding(self, image_bytes: bytes) -> list[DetectedFace]:
         """Detect faces and extract embeddings (registration path)."""
         ...
 
     @abstractmethod
-    async def detect_from_bytes(self, image_bytes: bytes) -> List[FaceDetection]:
+    async def detect_from_bytes(self, image_bytes: bytes) -> list[FaceDetection]:
         """Detect faces without embeddings from raw bytes."""
         ...
 
     @abstractmethod
-    async def detect(self, image: Image) -> List[FaceDetection]:
+    async def detect(self, image: Image) -> list[FaceDetection]:
         """Detect faces without embeddings from a decoded image."""
         ...
 
@@ -53,8 +52,8 @@ class IFaceAligner(ABC):
         self,
         image: Image,
         landmark: Landmark,
-        output_size: Tuple[int, int] = (112, 112),
-    ) -> Optional[Image]:
+        output_size: tuple[int, int] = (112, 112),
+    ) -> Image | None:
         ...
 
 
@@ -62,7 +61,7 @@ class IFaceEmbedder(ABC):
     """Extract an embedding from an aligned face."""
 
     @abstractmethod
-    async def embed(self, aligned_face: Image) -> Optional[List[float]]:
+    async def embed(self, aligned_face: Image) -> list[float] | None:
         ...
 
 
@@ -72,7 +71,7 @@ class IFaceCropper(ABC):
     @abstractmethod
     async def crop(
         self, image: Image, bbox: BoundingBox, padding: float = 0.1
-    ) -> Optional[Image]:
+    ) -> Image | None:
         ...
 
 
@@ -91,8 +90,8 @@ class ITrackerService(ABC):
 
     @abstractmethod
     async def track(
-        self, detections: List[FaceDetection], frame_id: int
-    ) -> Tuple[List[TrackedFaceData], List[int]]:
+        self, detections: list[FaceDetection], frame_id: int
+    ) -> tuple[list[TrackedFaceData], list[int]]:
         ...
 
     @abstractmethod
@@ -100,7 +99,7 @@ class ITrackerService(ABC):
         ...
 
     @abstractmethod
-    async def get_active_track_ids(self) -> List[int]:
+    async def get_active_track_ids(self) -> list[int]:
         ...
 
 
@@ -115,8 +114,8 @@ class IActiveSpeakerService(ABC):
 
     @abstractmethod
     async def score(
-        self, face_crops: List[Image], pcm16: bytes, sample_rate: int
-    ) -> List[float]:
+        self, face_crops: list[Image], pcm16: bytes, sample_rate: int
+    ) -> list[float]:
         ...
 
 

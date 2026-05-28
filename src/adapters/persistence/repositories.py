@@ -1,5 +1,4 @@
 """Database repository implementation."""
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select, update, delete
@@ -33,8 +32,8 @@ class ConversationRepository(IConversationRepository):
     async def list_cursor(
         self,
         limit: int,
-        cursor: Optional[str] = None,
-    ) -> tuple[list[Conversation], Optional[str]]:
+        cursor: str | None = None,
+    ) -> tuple[list[Conversation], str | None]:
         limit_fetch = limit + 1
         stmt = select(ConversationModel)
         if cursor:
@@ -55,7 +54,7 @@ class ConversationRepository(IConversationRepository):
 
         conversations = [ConversationMapper.to_entity(m) for m in models]
 
-        next_cursor: Optional[str] = None
+        next_cursor: str | None = None
         if has_next and models:
             last = models[-1]
             next_cursor = str(last.id)
@@ -125,8 +124,8 @@ class MessageRepository(IMessageRepository):
         self,
         conversation_id: str,
         limit: int,
-        cursor: Optional[str] = None,
-    ) -> tuple[list[Message], Optional[str]]:
+        cursor: str | None = None,
+    ) -> tuple[list[Message], str | None]:
         limit_fetch = limit + 1
         stmt = select(MessageModel).where(MessageModel.conversation_id == conversation_id)
 

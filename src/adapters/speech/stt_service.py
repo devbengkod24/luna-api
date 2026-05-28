@@ -5,7 +5,6 @@ import base64
 import logging
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from faster_whisper import WhisperModel
@@ -21,9 +20,9 @@ class WhisperSTTService(ISTTService):
 
     def __init__(
         self,
-        model_size: Optional[str] = None,
-        device: Optional[int] = None,
-        compute_type: Optional[str] = "float16",
+        model_size: str | None = None,
+        device: int | None = None,
+        compute_type: str | None = "float16",
     ):
         self.model_size = model_size or settings.whisper_model
 

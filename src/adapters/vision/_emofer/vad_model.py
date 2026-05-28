@@ -45,7 +45,8 @@ class VADModel:
     INPUT_SIZE = 224
 
     def __init__(self, model_path: str):
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        available = ort.get_available_providers()
+        providers = [p for p in ["CUDAExecutionProvider", "CPUExecutionProvider"] if p in available]
         self.session = ort.InferenceSession(model_path, providers=providers)
         input_names = [i.name for i in self.session.get_inputs()]
         output_names = [o.name for o in self.session.get_outputs()]

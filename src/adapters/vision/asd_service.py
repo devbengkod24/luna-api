@@ -15,7 +15,6 @@ Inference is synchronous (PyTorch); callers reach it via `asyncio.to_thread`.
 
 import asyncio
 import logging
-from typing import List, Optional
 
 import cv2
 import numpy as np
@@ -56,7 +55,7 @@ class _LRASDNet(nn.Module):
 class ActiveSpeakerService(IActiveSpeakerService):
     """Active speaker detection using the vendored LR-ASD network."""
 
-    def __init__(self, model_path: Optional[str] = None, device: Optional[str] = None):
+    def __init__(self, model_path: str | None = None, device: str | None = None):
         import python_speech_features  # local import: optional dep, fail-soft upstream
 
         self._mfcc = python_speech_features.mfcc
@@ -82,7 +81,7 @@ class ActiveSpeakerService(IActiveSpeakerService):
 
     # --- preprocessing ---
 
-    def _crops_to_tensor(self, face_crops: List[Image]) -> np.ndarray:
+    def _crops_to_tensor(self, face_crops: list[Image]) -> np.ndarray:
         frames = []
         for img in face_crops:
             raw = img.raw
@@ -96,7 +95,7 @@ class ActiveSpeakerService(IActiveSpeakerService):
             return np.empty((0, _CROP_SIZE, _CROP_SIZE), dtype=np.float32)
         return np.stack(frames).astype(np.float32)
 
-    def _score_sync(self, face_crops: List[Image], pcm16: bytes, sample_rate: int) -> List[float]:
+    def _score_sync(self, face_crops: list[Image], pcm16: bytes, sample_rate: int) -> list[float]:
         if sample_rate != 16000:
             raise ValueError(f"ASD requires 16 kHz audio, got {sample_rate} Hz")
         if not pcm16 or not face_crops:
@@ -127,6 +126,6 @@ class ActiveSpeakerService(IActiveSpeakerService):
             return [float(p) for p in probs.detach().cpu().numpy()]
 
     async def score(
-        self, face_crops: List[Image], pcm16: bytes, sample_rate: int
-    ) -> List[float]:
+        self, face_crops: list[Image], pcm16: bytes, sample_rate: int
+    ) -> list[float]:
         return await asyncio.to_thread(self._score_sync, face_crops, pcm16, sample_rate)

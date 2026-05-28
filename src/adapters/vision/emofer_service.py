@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -35,8 +34,8 @@ class EmoferService(IEmotionDetectionService):
 
     def __init__(
         self,
-        vad_model_path: Optional[str] = None,
-        emotic_model_path: Optional[str] = None,
+        vad_model_path: str | None = None,
+        emotic_model_path: str | None = None,
     ):
         from src.adapters.vision._emofer.vad_model import VADModel
         from src.adapters.vision._emofer.emotic_model import EmoticModel
@@ -45,9 +44,22 @@ class EmoferService(IEmotionDetectionService):
         self._vad = VADModel(vad_path)
         logger.info("EmoferService: VADModel loaded from %s", vad_path)
 
-        self._emotic: Optional[EmoticModel] = None
+        self._emotic: EmoticModel | None = None
         emotic_path = emotic_model_path or settings.emofer_emotic_model_path
-        if emotic_path and Path(emotic_path).exists():
+        if not emotic_path:
+            logger.info("EmoferService: EmoticModel path not configured, using VAD-only mode")
+        elif not Path(emotic_path).exists():
+            logger.info("EmoferService: EmoticModel not found at %s, using VAD-only mode", emotic_path)
+        elif not Path(emotic_path + ".data").exists():
+            # Large ONNX models store weights in a companion <model>.onnx.data file.
+            # If it's absent the C++ runtime logs a hard error before raising —
+            # skip early to avoid the noise.
+            logger.info(
+                "EmoferService: EmoticModel skipped — external data file missing (%s.data), "
+                "using VAD-only mode",
+                emotic_path,
+            )
+        else:
             try:
                 self._emotic = EmoticModel(emotic_path)
                 logger.info("EmoferService: EmoticModel loaded from %s", emotic_path)
@@ -55,11 +67,6 @@ class EmoferService(IEmotionDetectionService):
                 logger.warning(
                     "EmoferService: EmoticModel failed to load (running without it): %s", e
                 )
-        else:
-            logger.info(
-                "EmoferService: EmoticModel not found at %s, using VAD-only mode",
-                emotic_path,
-            )
 
     # --- Sync helpers ---
 
@@ -140,7 +147,7 @@ class EmoferService(IEmotionDetectionService):
             return DetectedEmotion(emotion="neutral", confidence=0.0)
         return DetectedEmotion(emotion=result["emotion"], confidence=result["confidence"])
 
-    def _body_crop(self, frame: np.ndarray, bbox: BoundingBox) -> Optional[np.ndarray]:
+    def _body_crop(self, frame: np.ndarray, bbox: BoundingBox) -> np.ndarray | None:
         """Approximate body region by extending face bbox 2x downward."""
         h, w = frame.shape[:2]
         x1, y1, x2, y2 = bbox.to_xyxy()

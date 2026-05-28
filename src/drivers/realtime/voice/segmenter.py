@@ -8,7 +8,6 @@ State machine over per-frame is_speech() results:
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import Deque, Optional
 
 from src.ports.vad import IVadService
 
@@ -22,7 +21,7 @@ class SegmentEvent(Enum):
 @dataclass
 class SegmenterTick:
     event: SegmentEvent = SegmentEvent.NONE
-    utterance: Optional[bytes] = None  # filled on SPEECH_END
+    utterance: bytes | None = None  # filled on SPEECH_END
 
 
 class VadSegmenter:
@@ -41,7 +40,7 @@ class VadSegmenter:
         self.speech_end_frames = speech_end_frames
         self.max_utterance_frames = max_utterance_frames
 
-        self._prebuffer: Deque[bytes] = deque(maxlen=prebuffer_frames)
+        self._prebuffer: deque[bytes] = deque(maxlen=prebuffer_frames)
         self._utterance: list[bytes] = []
         self._is_speaking = False
         self._speech_streak = 0

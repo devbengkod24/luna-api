@@ -1,6 +1,5 @@
 """File schemas for CRUD + ingest endpoints."""
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -71,8 +70,8 @@ class FileResponse(BaseModel):
 
 class IngestRequest(BaseModel):
     """Request body for POST /file/ingest."""
-    file_id: Optional[str] = None
-    tags: Optional[list[str]] = Field(default=None, description="Tags for filtering context (e.g. admisi, akademik)")
+    file_id: str | None = None
+    tags: list[str] | None = Field(default=None, description="Tags for filtering context (e.g. admisi, akademik)")
 
 
 class IngestResponse(BaseModel):

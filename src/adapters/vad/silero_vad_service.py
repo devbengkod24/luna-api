@@ -10,7 +10,6 @@ replacement for `WebRtcVadService` — the segmenter is unchanged.
 """
 
 import logging
-from typing import Optional
 
 import numpy as np
 import torch
@@ -54,7 +53,7 @@ class SileroVadService(IVadService):
         # Holds residual samples that didn't fill a full 512-sample window on
         # the previous push. Carrying them forward avoids dropping audio when
         # the caller's frame_duration_ms doesn't divide evenly into 32 ms.
-        self._pending: Optional[np.ndarray] = None
+        self._pending: np.ndarray | None = None
 
         # Track last decision so a *short* frame (smaller than the Silero
         # window) doesn't silently report False. We replay the previous

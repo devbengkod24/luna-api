@@ -2,7 +2,6 @@
 
 import base64
 import logging
-from typing import List, Optional, Tuple
 
 from src.domain.entities.face import FaceData, FaceRegistrationResult, RegisterFaceInput
 from src.ports.identifiers import IUuidGenerator
@@ -27,9 +26,9 @@ class RegisterFacesUseCase:
 
     async def execute(
         self,
-        faces: List[RegisterFaceInput],
+        faces: list[RegisterFaceInput],
         skip_existing: bool = True,
-    ) -> List[FaceRegistrationResult]:
+    ) -> list[FaceRegistrationResult]:
         results = []
         for face_input in faces:
             result = await self._register_single(face_input, skip_existing)
@@ -64,7 +63,7 @@ class RegisterFacesUseCase:
         if not embedding:
             return FaceRegistrationResult(success=False, name=name, nim=nim, message="Failed to extract embedding")
 
-        existing: Optional[FaceData] = None
+        existing: FaceData | None = None
         if nim:
             try:
                 existing = await self.face_service.get_by_nim(nim)
@@ -99,8 +98,8 @@ class ListFacesUseCase:
     async def execute(
         self,
         limit: int = 20,
-        cursor: Optional[str] = None,
-    ) -> Tuple[List[FaceData], Optional[str]]:
+        cursor: str | None = None,
+    ) -> tuple[list[FaceData], str | None]:
         return await self.face_service.get_all_cursor(limit=limit, cursor=cursor)
 
 
@@ -110,7 +109,7 @@ class GetFaceUseCase:
     def __init__(self, face_service: IFaceService):
         self.face_service = face_service
 
-    async def execute(self, face_id: str) -> Optional[FaceData]:
+    async def execute(self, face_id: str) -> FaceData | None:
         return await self.face_service.get_by_id(face_id)
 
 

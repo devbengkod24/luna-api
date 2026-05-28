@@ -8,7 +8,6 @@ Filename format:
 import base64
 import logging
 from pathlib import Path
-from typing import Optional
 
 from src.domain.entities.face import RegisterFaceInput
 from src.ports.identifiers import IUuidGenerator
@@ -19,11 +18,11 @@ from src.use_cases.face_use_case import RegisterFacesUseCase
 logger = logging.getLogger(__name__)
 
 
-def _parse_filename(stem: str) -> tuple[str, Optional[str]]:
+def _parse_filename(stem: str) -> tuple[str, str | None]:
     """Parse stem into (name, nim). Uses '__' as separator. NIM is optional."""
     if "__" in stem:
         name_part, nim_raw = stem.split("__", 1)
-        nim: Optional[str] = nim_raw.strip() or None
+        nim: str | None = nim_raw.strip() or None
     else:
         name_part, nim = stem, None
     return name_part.replace("_", " ").strip(), nim

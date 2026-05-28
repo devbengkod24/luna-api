@@ -52,6 +52,8 @@ async def lifespan(app: FastAPI):
                 await container.db_connection.close()
             if container.rag_service:
                 await container.rag_service.close()
+            if container.face_service:
+                await container.face_service.close()
     except Exception as e:
         logger.error("Error during shutdown: %s", e, exc_info=True)
 

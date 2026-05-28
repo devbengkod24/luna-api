@@ -1,7 +1,6 @@
 """Prompt repository port — abstracts where system prompts come from."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from src.domain.entities import UserContext
 from src.shared.constants import Character
@@ -12,7 +11,7 @@ class IPromptRepository(ABC):
 
     @abstractmethod
     def get_system_prompt(
-        self, character: Character, context: Optional[UserContext] = None
+        self, character: Character, context: UserContext | None = None
     ) -> str:
         """Return a rendered system prompt for the given character + context."""
         ...

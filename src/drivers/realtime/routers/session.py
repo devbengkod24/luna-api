@@ -30,7 +30,6 @@ import logging
 import struct
 import time
 from collections import deque
-from typing import Deque, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -53,7 +52,7 @@ _TYPE_VIDEO = 0x02
 _HEADER = struct.Struct(">BQ")  # type byte + uint64 ms timestamp
 
 
-def _parse_character(value: Optional[str]) -> Character:
+def _parse_character(value: str | None) -> Character:
     if value is None:
         return Character.LUNA
     try:
@@ -162,38 +161,38 @@ async def session_stream(websocket: WebSocket):
 
     # --- Per-track crop ring buffers + global facing buffer, keyed by capture ts ---
     # Cap each track's buffer to the longest utterance so memory stays bounded.
-    crop_buffers: Dict[int, Deque[Tuple[int, Image]]] = {}
-    facing_buffer: Deque[Tuple[int, float]] = deque(maxlen=2000)
+    crop_buffers: dict[int, deque[tuple[int, Image]]] = {}
+    facing_buffer: deque[tuple[int, float]] = deque(maxlen=2000)
     last_audio_ts = 0
     speech_start_ts = 0
 
     audio_buffer = bytearray()
-    pipeline_task: Optional[asyncio.Task] = None
+    pipeline_task: asyncio.Task | None = None
 
     # latest-wins video slot
-    pending_video: Optional[Tuple[bytes, int]] = None
+    pending_video: tuple[bytes, int] | None = None
     new_video_event = asyncio.Event()
     stop_event = asyncio.Event()
     video_frame_id = 0
 
-    def _record_crops(crops: Dict[int, Image], ts: int) -> None:
+    def _record_crops(crops: dict[int, Image], ts: int) -> None:
         for tid, crop in crops.items():
             dq = crop_buffers.get(tid)
             if dq is None:
                 dq = deque(maxlen=max_utterance_frames)
                 crop_buffers[tid] = dq
             dq.append((ts, crop))
-        # Drop buffers for tracks that have gone stale (no recent crops).
-        if crops:
-            cutoff = ts - int(settings.voice_max_utterance_seconds * 1000) - 2000
-            for tid in [t for t, dq in crop_buffers.items() if dq and dq[-1][0] < cutoff]:
-                crop_buffers.pop(tid, None)
+        # Drop stale track buffers — runs on every crop arrival and also
+        # unconditionally so video-stop doesn't leave stale entries indefinitely.
+        cutoff = ts - int(settings.voice_max_utterance_seconds * 1000) - 2000
+        for tid in [t for t, dq in list(crop_buffers.items()) if dq and dq[-1][0] < cutoff]:
+            crop_buffers.pop(tid, None)
 
-    def _select_candidate(start_ts: int, end_ts: int) -> Tuple[Optional[int], List[Image], List[float]]:
+    def _select_candidate(start_ts: int, end_ts: int) -> tuple[int | None, list[Image], list[float]]:
         """Pick the closest (largest-crop) track present during the utterance."""
-        best_tid: Optional[int] = None
+        best_tid: int | None = None
         best_area = -1
-        best_crops: List[Image] = []
+        best_crops: list[Image] = []
         for tid, dq in crop_buffers.items():
             crops = [c for (ts, c) in dq if start_ts <= ts <= end_ts]
             if not crops:
@@ -308,10 +307,14 @@ async def session_stream(websocket: WebSocket):
             await _safe_send(websocket, {"event": "speech_end", "payload": {}})
             start_ts, end_ts = speech_start_ts, last_audio_ts
             pipeline_task = asyncio.create_task(
-                _run_pipeline(tick.utterance, start_ts, end_ts), name="session-pipeline"
+                asyncio.wait_for(
+                    _run_pipeline(tick.utterance, start_ts, end_ts),
+                    timeout=settings.agent_idle_timeout_seconds * 2,
+                ),
+                name="session-pipeline",
             )
 
-    # --- Audio demux: feed VAD frames synchronously (fast) ---
+    # --- Audio demux: VAD inference offloaded to thread pool ---
     async def _handle_audio(payload: bytes, ts: int) -> None:
         nonlocal last_audio_ts
         last_audio_ts = ts
@@ -320,7 +323,8 @@ async def session_stream(websocket: WebSocket):
         while len(audio_buffer) >= frame_size:
             frame = bytes(audio_buffer[:frame_size])
             del audio_buffer[:frame_size]
-            await _process_segment(segmenter.push(frame))
+            tick = await asyncio.to_thread(segmenter.push, frame)
+            await _process_segment(tick)
 
     # --- Video processor: latest-wins, never blocks the receive loop ---
     async def _video_processor() -> None:

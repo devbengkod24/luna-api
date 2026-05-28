@@ -1,7 +1,6 @@
 """Face domain entities — used by face registration and CRUD."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 @dataclass
@@ -10,8 +9,8 @@ class FaceData:
 
     id: str
     name: str
-    nim: Optional[str] = None
-    embedding: List[float] = field(default_factory=list)
+    nim: str | None = None
+    embedding: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -20,7 +19,7 @@ class RegisterFaceInput:
 
     name: str
     image_base64: str
-    nim: Optional[str] = None
+    nim: str | None = None
 
 
 @dataclass
@@ -28,7 +27,7 @@ class FaceRegistrationResult:
     """Result of a single face registration attempt."""
 
     success: bool
-    face_id: Optional[str] = None
-    name: Optional[str] = None
-    nim: Optional[str] = None
-    message: Optional[str] = None
+    face_id: str | None = None
+    name: str | None = None
+    nim: str | None = None
+    message: str | None = None

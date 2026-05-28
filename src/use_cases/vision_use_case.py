@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import Dict, List, Optional
 
 from src.config import settings
 from src.domain.entities.vision import (
@@ -36,10 +35,10 @@ class VisionUseCase:
         face_detector: IFaceDetector,
         face_aligner: IFaceAligner,
         face_embedder: IFaceEmbedder,
-        face_store: Optional[IFaceService] = None,
-        tracker: Optional[ITrackerService] = None,
-        emotion_detection: Optional[IEmotionDetectionService] = None,
-        face_cropper: Optional[IFaceCropper] = None,
+        face_store: IFaceService | None = None,
+        tracker: ITrackerService | None = None,
+        emotion_detection: IEmotionDetectionService | None = None,
+        face_cropper: IFaceCropper | None = None,
     ):
         self.image_decoder = image_decoder
         self.face_detector = face_detector
@@ -55,7 +54,7 @@ class VisionUseCase:
         self.retry_interval = settings.vision_recognition_retry_interval
         self.max_attempts = settings.vision_max_recognition_attempts
 
-        self._states: Dict[int, TrackState] = {}
+        self._states: dict[int, TrackState] = {}
 
     # --- Track state helpers ---
 
@@ -70,7 +69,7 @@ class VisionUseCase:
             self._states[track_id].last_seen_frame = frame_id
         return self._states[track_id]
 
-    def _cleanup_dead(self, dead_ids: List[int]) -> None:
+    def _cleanup_dead(self, dead_ids: list[int]) -> None:
         for tid in dead_ids:
             self._states.pop(tid, None)
 
@@ -78,7 +77,7 @@ class VisionUseCase:
 
     async def _recognize(
         self, state: TrackState, aligned_face: Image, quality: float
-    ) -> Optional[Identity]:
+    ) -> Identity | None:
         state.record_recognition_attempt(quality)
 
         embedding = await self.face_embedder.embed(aligned_face)
@@ -139,7 +138,7 @@ class VisionUseCase:
             and state.should_detect_emotion(frame_id, self.emotion_interval)
         )
 
-        aligned: Optional[Image] = None
+        aligned: Image | None = None
         if tracked.landmark and (need_recognition or need_emotion):
             aligned = await self.face_aligner.align(frame, tracked.landmark)
 
@@ -175,7 +174,7 @@ class VisionUseCase:
 
     async def _decode_and_track(
         self, frame_bytes: bytes, frame_id: int
-    ) -> tuple[Optional[Image], List[TrackedFaceData]]:
+    ) -> tuple[Image | None, list[TrackedFaceData]]:
         """Decode a frame and produce tracked faces (shared detect+track path)."""
         frame = await self.image_decoder.decode(frame_bytes)
         if frame is None:
@@ -205,18 +204,20 @@ class VisionUseCase:
 
         return frame, tracked_faces
 
-    async def execute(self, frame_bytes: bytes, frame_id: int = 0) -> List[VisionResult]:
+    async def execute(self, frame_bytes: bytes, frame_id: int = 0) -> list[VisionResult]:
         frame, tracked_faces = await self._decode_and_track(frame_bytes, frame_id)
         if frame is None or not tracked_faces:
             return []
 
-        return list(await asyncio.gather(*[
-            self._process_track(t, frame, frame_id) for t in tracked_faces
-        ]))
+        raw = await asyncio.gather(
+            *[self._process_track(t, frame, frame_id) for t in tracked_faces],
+            return_exceptions=True,
+        )
+        return [r for r in raw if isinstance(r, VisionResult)]
 
     async def execute_with_crops(
         self, frame_bytes: bytes, frame_id: int = 0
-    ) -> tuple[List[VisionResult], Dict[int, Image]]:
+    ) -> tuple[list[VisionResult], dict[int, Image]]:
         """Like `execute`, but also return a natural bbox crop per track_id.
 
         Used by the session router to buffer face crops for active-speaker
@@ -228,20 +229,22 @@ class VisionUseCase:
         if frame is None or not tracked_faces:
             return [], {}
 
-        results = await asyncio.gather(*[
-            self._process_track(t, frame, frame_id) for t in tracked_faces
-        ])
+        raw = await asyncio.gather(
+            *[self._process_track(t, frame, frame_id) for t in tracked_faces],
+            return_exceptions=True,
+        )
+        results = [r for r in raw if isinstance(r, VisionResult)]
 
-        crops: Dict[int, Image] = {}
+        crops: dict[int, Image] = {}
         if self.face_cropper is not None:
             cropped = await asyncio.gather(*[
                 self.face_cropper.crop(frame, t.bbox, padding=0.4) for t in tracked_faces
-            ])
+            ], return_exceptions=True)
             for t, c in zip(tracked_faces, cropped):
-                if c is not None:
+                if isinstance(c, Image):
                     crops[t.track_id] = c
 
-        return list(results), crops
+        return results, crops
 
     async def reset(self) -> None:
         if self.tracker:

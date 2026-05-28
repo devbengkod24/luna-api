@@ -6,8 +6,6 @@ Loads templates once at startup and renders them with the per-request context.
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
-
 from src.domain.entities import UserContext
 from src.ports.prompts import IPromptRepository
 from src.shared.constants import Character
@@ -25,7 +23,7 @@ class FilePromptRepository(IPromptRepository):
         self.base_path = base_path
 
     def get_system_prompt(
-        self, character: Character, context: Optional[UserContext] = None
+        self, character: Character, context: UserContext | None = None
     ) -> str:
         try:
             templates = _load_prompt_templates(self.base_path)

@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import List, Set, Tuple
 
 import numpy as np
 from ioutrack import ByteTrack
@@ -32,12 +31,12 @@ class TrackerService(ITrackerService):
             min_hits=min_hits if min_hits is not None else settings.tracker_min_hits,
             init_tracker_min_score=min_score if min_score is not None else settings.tracker_min_score,
         )
-        self._active: Set[int] = set()
-        self._prev: Set[int] = set()
+        self._active: set[int] = set()
+        self._prev: set[int] = set()
 
     def _track_sync(
-        self, detections: List[FaceDetection], frame_id: int
-    ) -> Tuple[List[TrackedFaceData], List[int]]:
+        self, detections: list[FaceDetection], frame_id: int
+    ) -> tuple[list[TrackedFaceData], list[int]]:
         self._prev = self._active.copy()
 
         if not detections:
@@ -83,12 +82,12 @@ class TrackerService(ITrackerService):
         self._prev.clear()
 
     async def track(
-        self, detections: List[FaceDetection], frame_id: int
-    ) -> Tuple[List[TrackedFaceData], List[int]]:
+        self, detections: list[FaceDetection], frame_id: int
+    ) -> tuple[list[TrackedFaceData], list[int]]:
         return await asyncio.to_thread(self._track_sync, detections, frame_id)
 
     async def reset(self) -> None:
         await asyncio.to_thread(self._reset_sync)
 
-    async def get_active_track_ids(self) -> List[int]:
+    async def get_active_track_ids(self) -> list[int]:
         return list(self._active)

@@ -20,13 +20,6 @@ class Character(int, Enum):
         return self.name.lower()
 
 
-class StorageType(Enum):
-    """Storage type enumeration."""
-
-    RAG = "rag"
-    FACES = "faces"
-
-
 class FileStatus(str, Enum):
     """File processing status."""
 

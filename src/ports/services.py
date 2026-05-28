@@ -1,7 +1,7 @@
 """Service port interfaces (external services / non-DB adapters)."""
 
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, List, Optional, Tuple
+from typing import AsyncGenerator
 
 from src.domain.entities import Message, UserContext
 from src.domain.entities.face import FaceData
@@ -15,9 +15,9 @@ class IAgentService(ABC):
     async def generate_stream(
         self,
         user_input: str,
-        messages: List[Message],
-        context: Optional[UserContext] = None,
-        system_prompt: Optional[str] = None,
+        messages: list[Message],
+        context: UserContext | None = None,
+        system_prompt: str | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         ...
 
@@ -38,7 +38,7 @@ class IRAGService(ABC):
         self,
         file_id: str,
         file_path: str,
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
     ) -> bool:
         """Index document into vector store."""
         ...
@@ -47,9 +47,9 @@ class IRAGService(ABC):
     async def retrieve(
         self,
         query: str,
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
         limit: int = 5,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """Retrieve relevant documents."""
         ...
 
@@ -93,30 +93,30 @@ class IFaceService(ABC):
 
     @abstractmethod
     async def search_face(
-        self, embedding: List[float], threshold: float = 0.6
-    ) -> Optional[Tuple[FaceData, float]]:
+        self, embedding: list[float], threshold: float = 0.6
+    ) -> tuple[FaceData, float] | None:
         """Find closest matching face. Returns (face, score) or None."""
         ...
 
     @abstractmethod
-    async def get_all(self) -> List[FaceData]:
+    async def get_all(self) -> list[FaceData]:
         """List all registered faces (without embeddings)."""
         ...
 
     @abstractmethod
     async def get_all_cursor(
-        self, limit: int, cursor: Optional[str] = None
-    ) -> Tuple[List[FaceData], Optional[str]]:
+        self, limit: int, cursor: str | None = None
+    ) -> tuple[list[FaceData], str | None]:
         """List faces with cursor-based pagination. Returns (faces, next_cursor)."""
         ...
 
     @abstractmethod
-    async def get_by_id(self, face_id: str) -> Optional[FaceData]:
+    async def get_by_id(self, face_id: str) -> FaceData | None:
         """Get a face by its ID."""
         ...
 
     @abstractmethod
-    async def get_by_nim(self, nim: str) -> Optional[FaceData]:
+    async def get_by_nim(self, nim: str) -> FaceData | None:
         """Get a face by student NIM."""
         ...
 

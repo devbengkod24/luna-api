@@ -6,7 +6,6 @@ import io
 import logging
 import os
 import threading
-from typing import Optional
 
 import numpy as np
 import torch
@@ -156,7 +155,7 @@ class ChatterboxSTTSService(ITTSService):
 
     def __init__(
         self,
-        device: Optional[str] = None,
+        device: str | None = None,
         voice_clone_dir: str = "storage/voice",
     ) -> None:
         # Chatterbox bisa jalan di CPU, tapi CUDA sangat disarankan.
@@ -166,10 +165,10 @@ class ChatterboxSTTSService(ITTSService):
         self.voice_clone_dir = voice_clone_dir
 
         self.model = None
-        self.sr: Optional[int] = None
+        self.sr: int | None = None
         self._load_model()
 
-    def _character_prompt_path(self, character: int) -> Optional[str]:
+    def _character_prompt_path(self, character: int) -> str | None:
         """Resolve audio prompt path for a given character.
 
         Convention: `storage/voice/{slug}.wav` where slug is the lowercase
@@ -283,7 +282,7 @@ class F5TTSIndonesianService(ITTSService):
 
     def __init__(
         self,
-        device: Optional[str] = None,
+        device: str | None = None,
         voice_clone_dir: str = "storage/voice",
         model_repo: str = MODEL_REPO,
         model_name: str = MODEL_NAME,

@@ -1,5 +1,4 @@
 import base64
-import re
 
 from pydantic import BaseModel, Field, field_validator
 

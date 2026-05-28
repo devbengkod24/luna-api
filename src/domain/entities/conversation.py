@@ -2,8 +2,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Union
-
 from src.shared.constants import Character
 from src.domain.entities.response import UserMessage, ToolMessage, AIMessage, UserContext
 
@@ -11,16 +9,16 @@ from src.domain.entities.response import UserMessage, ToolMessage, AIMessage, Us
 @dataclass
 class Conversation:
     title: str
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    id: Optional[str] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    id: str | None = None
 
 
 @dataclass
 class Message:
     character: Character
-    body: Union[UserMessage, ToolMessage, AIMessage]
+    body: UserMessage | ToolMessage | AIMessage
     conversation_id: str
     context: UserContext | None = None
     created_at: datetime | None = None
-    id: Optional[str] = None
+    id: str | None = None

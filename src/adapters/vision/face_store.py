@@ -1,7 +1,6 @@
 """Qdrant face vector store — implements IFaceService."""
 
 import logging
-from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +53,8 @@ class FaceStore(IFaceService):
         return face.id
 
     async def search_face(
-        self, embedding: List[float], threshold: float = 0.6
-    ) -> Optional[Tuple[FaceData, float]]:
+        self, embedding: list[float], threshold: float = 0.6
+    ) -> tuple[FaceData, float] | None:
         response = await self.client.query_points(
             collection_name=self.collection_name,
             query=embedding,
@@ -76,8 +75,8 @@ class FaceStore(IFaceService):
             top.score,
         )
 
-    async def get_all(self) -> List[FaceData]:
-        faces: List[FaceData] = []
+    async def get_all(self) -> list[FaceData]:
+        faces: list[FaceData] = []
         offset = None
         while True:
             records, next_offset = await self.client.scroll(
@@ -100,8 +99,8 @@ class FaceStore(IFaceService):
         return faces
 
     async def get_all_cursor(
-        self, limit: int, cursor: Optional[str] = None
-    ) -> Tuple[List[FaceData], Optional[str]]:
+        self, limit: int, cursor: str | None = None
+    ) -> tuple[list[FaceData], str | None]:
         limit_fetch = limit + 1
         records, _ = await self.client.scroll(
             collection_name=self.collection_name,
@@ -122,12 +121,12 @@ class FaceStore(IFaceService):
             )
             for r in records
         ]
-        next_cursor: Optional[str] = None
+        next_cursor: str | None = None
         if has_next and records:
             next_cursor = str(records[-1].id)
         return faces, next_cursor
 
-    async def get_by_id(self, face_id: str) -> Optional[FaceData]:
+    async def get_by_id(self, face_id: str) -> FaceData | None:
         results = await self.client.retrieve(
             collection_name=self.collection_name,
             ids=[face_id],
@@ -144,7 +143,7 @@ class FaceStore(IFaceService):
             embedding=[],
         )
 
-    async def get_by_nim(self, nim: str) -> Optional[FaceData]:
+    async def get_by_nim(self, nim: str) -> FaceData | None:
         results, _ = await self.client.scroll(
             collection_name=self.collection_name,
             scroll_filter=Filter(
@@ -174,3 +173,6 @@ class FaceStore(IFaceService):
         except Exception as e:
             logger.warning("Failed to delete face %s: %s", face_id, e)
             return False
+
+    async def close(self) -> None:
+        await self.client.close()

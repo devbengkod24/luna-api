@@ -18,7 +18,6 @@ Pure orchestration — depends on `ports` + `domain` only.
 """
 
 import logging
-from typing import List, Optional
 
 from src.config import settings
 from src.domain.entities.vision import DirectednessVerdict
@@ -33,10 +32,10 @@ class DirectednessUseCase:
 
     def __init__(
         self,
-        active_speaker: Optional[IActiveSpeakerService] = None,
-        asd_score_threshold: Optional[float] = None,
-        asd_presence_ratio: Optional[float] = None,
-        facing_threshold: Optional[float] = None,
+        active_speaker: IActiveSpeakerService | None = None,
+        asd_score_threshold: float | None = None,
+        asd_presence_ratio: float | None = None,
+        facing_threshold: float | None = None,
     ) -> None:
         self.active_speaker = active_speaker
         self.asd_score_threshold = (
@@ -60,9 +59,9 @@ class DirectednessUseCase:
         *,
         pcm16: bytes,
         sample_rate: int,
-        candidate_crops: List[Image],
-        facing_scores: List[float],
-        candidate_track_id: Optional[int] = None,
+        candidate_crops: list[Image],
+        facing_scores: list[float],
+        candidate_track_id: int | None = None,
     ) -> DirectednessVerdict:
         """Decide whether a segmented utterance is directed at the system.
 

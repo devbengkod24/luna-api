@@ -2,8 +2,8 @@
 
 import logging
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from src.domain.entities.file import File
 from src.ports.repositories import IFileRepository
@@ -102,8 +102,8 @@ class IngestFileUseCase:
 
     async def execute(
         self,
-        file_id: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        file_id: str | None = None,
+        tags: list[str] | None = None,
     ) -> dict:
         if file_id:
             files = [await self.file_repo.get_by_id(file_id)]
@@ -138,7 +138,6 @@ class IngestFileUseCase:
                 finally:
                     Path(tmp_path).unlink(missing_ok=True)
 
-                from datetime import datetime, timezone
                 file.status = FileStatus.COMPLETED if ok else FileStatus.FAILED
                 file.tags = effective_tags or file.tags
                 file.indexed_at = datetime.now(timezone.utc) if ok else file.indexed_at

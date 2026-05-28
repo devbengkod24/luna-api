@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import re
-from typing import AsyncGenerator, Awaitable, Callable, List, Optional, Tuple
+from typing import AsyncGenerator, Awaitable, Callable
 
 from src.config import settings
 from src.domain.entities import (
@@ -87,7 +87,7 @@ class SynthesizeTtsUseCase:
 
     async def synthesize_chunk(
         self, text: str, character: Character
-    ) -> Optional[str]:
+    ) -> str | None:
         """Preprocess + synthesize a single text chunk (e.g. one sentence).
 
         Returns base64-encoded WAV, or None if the chunk produced no speakable
@@ -112,7 +112,7 @@ class ResponseTextUseCase:
         agent_service: IAgentService,
         tts_service: ITTSService,
         prompt_repo: IPromptRepository,
-        title_runner: Optional[TitleRunner] = None,
+        title_runner: TitleRunner | None = None,
     ):
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
@@ -126,7 +126,7 @@ class ResponseTextUseCase:
 
     async def execute(
         self,
-        conversation_id: Optional[str],
+        conversation_id: str | None,
         user_input: str,
         character: Character,
         context: UserContext | None,
@@ -160,7 +160,7 @@ class ResponseSpeechUseCase:
         tts_service: ITTSService,
         stt_service: ISTTService,
         prompt_repo: IPromptRepository,
-        title_runner: Optional[TitleRunner] = None,
+        title_runner: TitleRunner | None = None,
     ):
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
@@ -175,7 +175,7 @@ class ResponseSpeechUseCase:
 
     async def execute(
         self,
-        conversation_id: Optional[str],
+        conversation_id: str | None,
         speech_base64: str,
         character: Character,
         context: UserContext | None,
@@ -209,13 +209,13 @@ _SENTENCE_RE = re.compile(r"[^.!?\n]*[.!?\n]+")
 _TTS_FORCE_FLUSH_CHARS = 220
 
 
-def _drain_sentences(buffer: str) -> Tuple[List[str], str]:
+def _drain_sentences(buffer: str) -> tuple[list[str], str]:
     """Pull complete sentences out of an accumulating token buffer.
 
     Returns (complete_sentences, remainder). The remainder is the trailing
     partial sentence still being streamed; the caller keeps accumulating into it.
     """
-    sentences: List[str] = []
+    sentences: list[str] = []
     cut = 0
     for match in _SENTENCE_RE.finditer(buffer):
         chunk = match.group(0).strip()
@@ -238,9 +238,9 @@ async def _stream_conversation(
     agent_service: IAgentService,
     tts_use_case: SynthesizeTtsUseCase,
     title_use_case: GenerateTitleUseCase,
-    title_runner: Optional[TitleRunner],
+    title_runner: TitleRunner | None,
     prompt_repo: IPromptRepository,
-    conversation_id: Optional[str],
+    conversation_id: str | None,
     user_input: str,
     character: Character,
     context: UserContext | None,
@@ -408,8 +408,8 @@ async def _stream_conversation(
 
 
 async def _resolve_conversation(
-    repo: IConversationRepository, conversation_id: Optional[str]
-) -> Optional[Conversation]:
+    repo: IConversationRepository, conversation_id: str | None
+) -> Conversation | None:
     if conversation_id:
         return await repo.get_by_id(conversation_id)
     return await repo.create(Conversation(title="Obrolan Baru"))

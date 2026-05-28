@@ -80,7 +80,7 @@ async def get_face(
     return FaceResponse(id=face.id, name=face.name, nim=face.nim)
 
 
-@router.delete("/{face_id}")
+@router.delete("/{face_id}", status_code=204)
 async def delete_face(
     face_id: str,
     use_case: DeleteFaceUseCase = Depends(dependencies.get_delete_face_use_case),
@@ -89,4 +89,3 @@ async def delete_face(
     success = await use_case.execute(face_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Face '{face_id}' not found")
-    return {"success": True, "message": f"Face '{face_id}' deleted"}
