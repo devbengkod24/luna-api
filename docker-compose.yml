@@ -1,4 +1,4 @@
-name: vsa
+name: luna
 services:
   ollama:
     image: ollama/ollama:0.13.1-rc0
@@ -23,16 +23,16 @@ services:
     image: postgres:17-alpine
     container_name: postgres
     environment:
-      POSTGRES_DB: vsa_db
+      POSTGRES_DB: luna_db
       POSTGRES_USER: bengkod
-      POSTGRES_PASSWORD: vsa_kece
+      POSTGRES_PASSWORD: luna_kece
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "bengkod", "-d", "vsa_db"]
+      test: ["CMD", "pg_isready", "-U", "bengkod", "-d", "luna_db"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -85,9 +85,9 @@ services:
     environment:
       # PostgreSQL
       POSTGRES_HOST: postgres
-      POSTGRES_DB: vsa_db
+      POSTGRES_DB: luna_db
       POSTGRES_USER: bengkod
-      POSTGRES_PASSWORD: vsa_kece
+      POSTGRES_PASSWORD: luna_kece
 
       # Qdrant
       QDRANT_HOST: qdrant

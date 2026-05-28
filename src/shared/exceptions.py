@@ -1,8 +1,8 @@
 """Custom exceptions for the application."""
 
 
-class VSAException(Exception):
-    """Base exception for VSA API."""
+class LunaException(Exception):
+    """Base exception for Luna API."""
 
     def __init__(self, message: str, status_code: int = 500):
         self.message = message
@@ -10,49 +10,49 @@ class VSAException(Exception):
         super().__init__(self.message)
 
 
-class BadRequestException(VSAException):
+class BadRequestException(LunaException):
     """400 Bad Request."""
 
     def __init__(self, message: str = "Bad Request"):
         super().__init__(message, 400)
 
 
-class UnauthorizedException(VSAException):
+class UnauthorizedException(LunaException):
     """401 Unauthorized."""
 
     def __init__(self, message: str = "Unauthorized"):
         super().__init__(message, 401)
 
 
-class ForbiddenException(VSAException):
+class ForbiddenException(LunaException):
     """403 Forbidden."""
 
     def __init__(self, message: str = "Forbidden"):
         super().__init__(message, 403)
 
 
-class NotFoundException(VSAException):
+class NotFoundException(LunaException):
     """404 Not Found."""
 
     def __init__(self, message: str = "Resource not found"):
         super().__init__(message, 404)
 
 
-class ValidationException(VSAException):
+class ValidationException(LunaException):
     """422 Validation Error."""
 
     def __init__(self, message: str = "Validation Error"):
         super().__init__(message, 422)
 
 
-class InternalServerException(VSAException):
+class InternalServerException(LunaException):
     """500 Internal Server Error."""
 
     def __init__(self, message: str = "Internal Server Error"):
         super().__init__(message, 500)
 
 
-class ServiceUnavailableException(VSAException):
+class ServiceUnavailableException(LunaException):
     """503 Service Unavailable."""
 
     def __init__(self, message: str = "Service Unavailable"):

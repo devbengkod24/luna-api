@@ -17,7 +17,7 @@ from src.drivers.rest.routers import conversation
 from src.drivers.rest.routers import face
 from src.drivers.rest.routers import file as file_router
 from src.drivers.rest.routers import response
-from src.shared.exceptions import VSAException
+from src.shared.exceptions import LunaException
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutdown complete")
 
 
-def _vsa_exception_handler(request, exc: VSAException) -> JSONResponse:
+def _luna_exception_handler(request, exc: LunaException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.message},
@@ -83,7 +83,7 @@ app = FastAPI(
     debug=settings.debug,
     lifespan=lifespan,
 )
-app.add_exception_handler(VSAException, _vsa_exception_handler)
+app.add_exception_handler(LunaException, _luna_exception_handler)
 app.add_exception_handler(Exception, _unhandled_exception_handler)
 
 

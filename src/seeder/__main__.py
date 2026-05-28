@@ -52,7 +52,7 @@ async def _main(target: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="VSA data seeders")
+    parser = argparse.ArgumentParser(description="Luna data seeders")
     parser.add_argument(
         "target",
         choices=["face", "rag", "all"],

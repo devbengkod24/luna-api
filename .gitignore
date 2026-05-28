@@ -1,6 +1,6 @@
 # Ignore local docker-compose override and the host bind directory for Postgres
 docker-compose.fuse.yml
-/.cache/vsa_postgres_data_driver/
+/.cache/luna_postgres_data_driver/
 
 # Common ignores
 __pycache__/

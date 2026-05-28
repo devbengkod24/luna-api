@@ -1,6 +1,6 @@
-# VSA Backend API v2
+# Luna Backend API
 
-Backend API untuk sistem Virtual Smart Assistant (VSA) dengan fitur:
+Backend API untuk sistem Luna (Linked Unified Neural Assistant) dengan fitur:
 
 - **Emotion Detection** — Deteksi emosi dari video frame
 - **Face Recognition** — Pengenalan wajah pengguna
@@ -29,7 +29,7 @@ Dibangun dengan **Clean Architecture**.
 ## Struktur Proyek
 
 ```
-VSA-BE-FastAPIv2/
+luna-api/
 ├── alembic/
 │   ├── versions/
 │   ├── env.py
@@ -93,7 +93,7 @@ VSA-BE-FastAPIv2/
 
 ```bash
 git clone <repository-url>
-cd VSA-BE-FastAPIv2
+cd luna-api
 ```
 
 ### 2. Environment

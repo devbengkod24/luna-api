@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = Field(default="VSA-BE-FastAPI-v2", alias="APP_NAME")
+    app_name: str = Field(default="luna-api", alias="APP_NAME")
     app_version: str = Field(default="1.0.0", alias="APP_VERSION")
     environment: str = Field(default="development", alias="ENVIRONMENT")
     debug: bool = Field(default=True, alias="DEBUG")
