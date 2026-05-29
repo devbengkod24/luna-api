@@ -213,11 +213,30 @@ class Settings(BaseSettings):
     # with the audio (LR-ASD). Fail-open: if ASD can't load or no face is tracked,
     # the utterance is treated as directed so the system never goes deaf.
     enable_asd: bool = Field(default=False, alias="ENABLE_ASD")
-    asd_model_path: str = Field(
-        default="storage/models/lr_asd.pth", alias="ASD_MODEL_PATH"
+    # ONNX runtime (3 sessions: audio/visual frontends + AV backend). Models are
+    # the deeptalk re-export of LR-ASD MIT — see storage/models/asd/README.md.
+    asd_audio_model_path: str = Field(
+        default="storage/models/asd/audio_frontend.onnx",
+        alias="ASD_AUDIO_MODEL_PATH",
     )
-    # Per-frame visual "speaking" score gate (LR-ASD output, sigmoid 0..1).
-    asd_score_threshold: float = Field(default=0.4, alias="ASD_SCORE_THRESHOLD")
+    asd_visual_model_path: str = Field(
+        default="storage/models/asd/visual_frontend.onnx",
+        alias="ASD_VISUAL_MODEL_PATH",
+    )
+    asd_av_model_path: str = Field(
+        default="storage/models/asd/av_backend.onnx",
+        alias="ASD_AV_MODEL_PATH",
+    )
+    # ONNX runtime intra-op threads. Bench: 2 is the sweet spot on typical
+    # 2-core kiosks (~2× faster than PyTorch); 1 erodes the win, >2 hurts on
+    # small models. ASD runs in short bursts at SPEECH_END so claiming threads
+    # is fine — LLM hasn't started yet.
+    asd_num_threads: int = Field(default=2, alias="ASD_NUM_THREADS")
+    # Per-frame speaking probability gate (sigmoid of av_backend logit, 0..1).
+    # The ONNX head emits a single class logit (not the 2-class softmax of the
+    # original PyTorch path), so this threshold runs higher than the old 0.4 —
+    # 0.5 is a sane default; tune on real speaking input.
+    asd_score_threshold: float = Field(default=0.5, alias="ASD_SCORE_THRESHOLD")
     # Fraction of the utterance's frames that must clear asd_score_threshold for
     # the candidate to count as the active speaker.
     asd_presence_ratio: float = Field(default=0.35, alias="ASD_PRESENCE_RATIO")
