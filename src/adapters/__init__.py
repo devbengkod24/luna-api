@@ -6,6 +6,7 @@ from .prompts import FilePromptRepository
 from .rag.rag_service import LlamaIndexRAGService
 from .speech.stt_service import WhisperSTTService
 from .speech.tts_service import (
+    CartesiaTTSService,
     ChatterboxSTTSService,
     F5TTSIndonesianService,
     MMSTTSService,
@@ -25,6 +26,7 @@ __all__ = [
     "MMSTTSService",
     "ChatterboxSTTSService",
     "F5TTSIndonesianService",
+    "CartesiaTTSService",
     "MinIOStorageService",
     "FaceStore",
     "FaceRecognitionService",

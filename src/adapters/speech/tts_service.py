@@ -424,3 +424,83 @@ class F5TTSIndonesianService(ITTSService):
         except Exception as e:
             logger.error("Failed to synthesize with F5-TTS: %s", e)
             raise
+
+
+class CartesiaTTSService(ITTSService):
+    """Text-to-Speech adapter using Cartesia cloud API with SSE streaming.
+
+    Streams raw PCM16 chunks per sentence instead of waiting for the full WAV,
+    which lets the client start playback before synthesis is complete.
+    Set TTS_PROVIDER=cartesia, CARTESIA_API_KEY, and CARTESIA_VOICE_ID to activate.
+    """
+
+    supports_streaming = True
+
+    def __init__(
+        self,
+        api_key: str,
+        voice_id: str,
+        model_id: str = "sonic-3.5",
+        sample_rate: int = 44100,
+        language: str = "id",
+    ) -> None:
+        self._api_key = api_key
+        self._voice_id = voice_id
+        self._model_id = model_id
+        self.sample_rate = sample_rate
+        self._language = language
+        logger.info(
+            "CartesiaTTSService initialized (model=%s, voice=%s, sr=%s, lang=%s)",
+            model_id, voice_id, sample_rate, language,
+        )
+
+    async def synthesize(self, text: str, character: int) -> str:
+        """Collect full SSE stream → WAV → base64 (backward-compat for REST endpoints)."""
+        chunks: list[bytes] = []
+        async for pcm in self.synthesize_stream(text, character):
+            chunks.append(pcm)
+        if not chunks:
+            raise ValueError("Cartesia returned no audio for the given text.")
+        return self._pcm_to_base64_wav(b"".join(chunks), self.sample_rate)
+
+    async def synthesize_stream(
+        self, text: str, character: int
+    ):
+        """Yield raw PCM16 byte chunks via Cartesia SSE API."""
+        from cartesia import AsyncCartesia
+
+        normalized = normalize_for_tts(text)
+        if not normalized.strip():
+            return
+
+        logger.info("Cartesia streaming TTS (chars=%s).", len(normalized))
+        try:
+            async with AsyncCartesia(api_key=self._api_key) as client:
+                stream = await client.tts.generate_sse(
+                    model_id=self._model_id,
+                    transcript=normalized,
+                    voice={"mode": "id", "id": self._voice_id},
+                    output_format={
+                        "container": "raw",
+                        "encoding": "pcm_s16le",
+                        "sample_rate": self.sample_rate,
+                    },
+                    language=self._language,
+                )
+                async for event in stream:
+                    if event.type == "chunk" and event.audio:
+                        yield event.audio
+        except Exception as e:
+            logger.error("Cartesia TTS streaming failed: %s", e)
+            raise
+
+    @staticmethod
+    def _pcm_to_base64_wav(pcm: bytes, sample_rate: int) -> str:
+        """Wrap raw PCM16 bytes in a WAV container and base64-encode."""
+        buf = io.BytesIO()
+        with __import__("wave").open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm)
+        return base64.b64encode(buf.getvalue()).decode()

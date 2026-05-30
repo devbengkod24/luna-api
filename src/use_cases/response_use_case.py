@@ -14,6 +14,7 @@ from src.domain.entities import (
 )
 from src.domain.events import (
     AssistantEvent,
+    AudioChunkEvent,
     AudioEvent,
     DoneEvent,
     ErrorEvent,
@@ -85,21 +86,30 @@ class SynthesizeTtsUseCase:
         self.tts_service = tts_service
         self.prompt_repo = prompt_repo
 
-    async def synthesize_chunk(
+    async def stream_chunk(
         self, text: str, character: Character
-    ) -> str | None:
-        """Preprocess + synthesize a single text chunk (e.g. one sentence).
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Yield AudioChunkEvent(s) for streaming adapters, or one AudioEvent.
 
-        Returns base64-encoded WAV, or None if the chunk produced no speakable
-        text. Used by the streaming pipeline to emit audio sentence-by-sentence
-        instead of waiting for the whole reply.
+        When the TTS service supports streaming (e.g. Cartesia), yields multiple
+        AudioChunkEvent objects as PCM16 bytes arrive. For non-streaming adapters
+        (MMS, Chatterbox, F5) falls back to a single AudioEvent with the full WAV.
         """
-        if not text or not text.strip():
-            return None
+        import base64 as _b64
 
-        # Normalization is deterministic inside the TTS adapter (tts_normalizer);
-        # no LLM preprocessing — that cost a cloud round-trip per sentence.
-        return await self.tts_service.synthesize(text, character)
+        if not text or not text.strip():
+            return
+
+        if self.tts_service.supports_streaming:
+            async for pcm in self.tts_service.synthesize_stream(text, character):
+                yield AudioChunkEvent(
+                    content=_b64.b64encode(pcm).decode(),
+                    sample_rate=getattr(self.tts_service, "sample_rate", 22050),
+                )
+        else:
+            audio_b64 = await self.tts_service.synthesize(text, character)
+            if audio_b64:
+                yield AudioEvent(content=audio_b64)
 
 
 class ResponseTextUseCase:
@@ -301,7 +311,8 @@ async def _stream_conversation(
                 if text is None:  # producer finished feeding sentences
                     return
                 try:
-                    audio_b64 = await tts_use_case.synthesize_chunk(text, character)
+                    async for event in tts_use_case.stream_chunk(text, character):
+                        await out_q.put(event)
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
@@ -309,8 +320,6 @@ async def _stream_conversation(
                         "Chunk TTS failed (conversation_id=%s): %s", conversation.id, e
                     )
                     continue
-                if audio_b64:
-                    await out_q.put(AudioEvent(content=audio_b64))
         finally:
             await out_q.put(sentinel)
 

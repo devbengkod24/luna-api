@@ -238,7 +238,12 @@ async def session_stream(websocket: WebSocket):
             try:
                 transcript = await container.stt_service.transcribe_pcm(pcm, sample_rate)
             except ValueError as e:
+                # Bad/unsupported audio (e.g. sample-rate mismatch). Tell the
+                # client so it leaves "processing" and returns to listening,
+                # mirroring the empty-transcript path below — otherwise the FE
+                # hangs until the next utterance.
                 logger.debug("STT validation failed: %s", e)
+                await _safe_send(websocket, {"event": "no_speech", "payload": {}})
                 return
             except Exception:
                 logger.exception("STT failed")

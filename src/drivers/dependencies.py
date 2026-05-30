@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters import (
     ActiveSpeakerService,
+    CartesiaTTSService,
     ChatterboxSTTSService,
     EmoferService,
     EmotionDetectionService,
@@ -139,6 +140,20 @@ def _build_speech() -> tuple[WhisperSTTService | None, object | None]:
             elif provider in {"f5", "f5-tts", "f5_tts", "f5-indonesia", "f5_indo"}:
                 tts = F5TTSIndonesianService(voice_clone_dir=settings.voice_clone_dir)
                 logger.info("TTS adapter initialized successfully (provider=f5)")
+            elif provider == "cartesia":
+                if not settings.cartesia_api_key or not settings.cartesia_voice_id:
+                    logger.warning(
+                        "Cartesia provider requires CARTESIA_API_KEY and CARTESIA_VOICE_ID — TTS disabled."
+                    )
+                else:
+                    tts = CartesiaTTSService(
+                        api_key=settings.cartesia_api_key,
+                        voice_id=settings.cartesia_voice_id,
+                        model_id=settings.cartesia_model_id,
+                        sample_rate=settings.cartesia_sample_rate,
+                        language=settings.cartesia_language,
+                    )
+                    logger.info("TTS adapter initialized successfully (provider=cartesia)")
             else:
                 tts = MMSTTSService()
                 logger.info("TTS adapter initialized successfully (provider=mms)")

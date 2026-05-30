@@ -4,6 +4,7 @@ from typing import Any
 
 from src.domain.events import (
     AssistantEvent,
+    AudioChunkEvent,
     AudioEvent,
     DoneEvent,
     ErrorEvent,
@@ -63,6 +64,13 @@ def stream_event_to_dict(event: StreamEvent) -> dict[str, Any]:
         return {"type": "transcript", "content": event.content}
     if isinstance(event, AudioEvent):
         return {"type": "audio", "content": event.content}
+    if isinstance(event, AudioChunkEvent):
+        return {
+            "type": "audio_chunk",
+            "content": event.content,
+            "sample_rate": event.sample_rate,
+            "encoding": event.encoding,
+        }
     if isinstance(event, ErrorEvent):
         return {"type": "error", "content": event.content}
     if isinstance(event, DoneEvent):

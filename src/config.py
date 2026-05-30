@@ -257,6 +257,13 @@ class Settings(BaseSettings):
         description="Optional WAV path for Chatterbox voice cloning.",
     )
 
+    # Cartesia TTS (cloud streaming, TTS_PROVIDER=cartesia)
+    cartesia_api_key: str | None = Field(default=None, alias="CARTESIA_API_KEY")
+    cartesia_voice_id: str = Field(default="", alias="CARTESIA_VOICE_ID")
+    cartesia_model_id: str = Field(default="sonic-3.5", alias="CARTESIA_MODEL_ID")
+    cartesia_sample_rate: int = Field(default=44100, alias="CARTESIA_SAMPLE_RATE")
+    cartesia_language: str = Field(default="id", alias="CARTESIA_LANGUAGE")
+
     # Rate limiting constants
     frame_timeout_seconds: float = 5.0
 

@@ -103,16 +103,18 @@ services:
       # Face Recognition (InsightFace)
       ENABLE_FACE_RECOGNITION: true
       ENABLE_EMOTION_DETECTION: true
-      ENABLE_TTS: False
+      ENABLE_TTS: True
       FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
-
+      
       # Device-Directed Speech Detection (LR-ASD active-speaker fusion).
       # Off by default: the directedness gate then fails open to a facing-only
       # check. Set true to fuse lip↔audio (needs requirements rebuild for
       # python_speech_features + storage/models/lr_asd.pth present).
-      ENABLE_ASD: True
+      ENABLE_ASD: False
 
-      TTS_PROVIDER: f5
+      TTS_PROVIDER: cartesia
+      CARTESIA_API_KEY: sk_car_CJnAoMzZzpAmBoHR5c8vLz
+      CARTESIA_VOICE_ID: b441c4fd-4910-4c55-ae56-f0291057e2cc
 
       # Speech / TTS
       WHISPER_MODEL: small

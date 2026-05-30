@@ -52,7 +52,7 @@ docx2txt==0.9
 insightface==0.7.3
 ioutrack-rs==0.4.0
 opencv-python-headless==4.9.0.80
-numpy>=1.26.0
+numpy>=1.26.0,<2.0.0
 
 # STT
 faster-whisper==1.2.1
@@ -73,7 +73,7 @@ uuid7==0.1.0
 # Object Storage
 minio==7.2.3
 
-chatterbox-tts==0.1.7
+# chatterbox-tts==0.1.7
 
 ml-dtypes==0.5.4
 
@@ -82,6 +82,7 @@ aiofiles==24.1.0
 nemoguardrails==0.21.0
 
 f5-tts==1.1.20
+cartesia==3.2.0
 
 # TTS text normalization frontend (deterministic, no LLM)
 num2words==0.5.13

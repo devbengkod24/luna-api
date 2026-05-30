@@ -57,9 +57,18 @@ class TranscriptEvent:
 
 @dataclass(frozen=True)
 class AudioEvent:
-    """Synthesized speech (base64-encoded)."""
+    """Synthesized speech (base64-encoded WAV)."""
     content: str
     type: str = "audio"
+
+
+@dataclass(frozen=True)
+class AudioChunkEvent:
+    """Raw PCM16 chunk from streaming TTS (sub-sentence, e.g. Cartesia)."""
+    content: str        # base64-encoded raw PCM16 bytes
+    sample_rate: int
+    encoding: str = "pcm_s16le"
+    type: str = "audio_chunk"
 
 
 @dataclass(frozen=True)
@@ -84,6 +93,7 @@ StreamEvent = (
     | AssistantEvent
     | TranscriptEvent
     | AudioEvent
+    | AudioChunkEvent
     | ErrorEvent
     | DoneEvent
 )

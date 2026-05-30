@@ -1,7 +1,7 @@
 """Service port interfaces (external services / non-DB adapters)."""
 
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator
+from typing import AsyncGenerator, ClassVar
 
 from src.domain.entities import Message, UserContext
 from src.domain.entities.face import FaceData
@@ -143,6 +143,16 @@ class ISTTService(ABC):
 class ITTSService(ABC):
     """Text-to-Speech service interface."""
 
+    supports_streaming: ClassVar[bool] = False
+
     @abstractmethod
     async def synthesize(self, text: str, character: int) -> str:
+        """Synthesize text and return base64-encoded WAV."""
         ...
+
+    async def synthesize_stream(
+        self, text: str, character: int
+    ) -> AsyncGenerator[bytes, None]:
+        """Yield raw PCM16 byte chunks. Override when supports_streaming=True."""
+        raise NotImplementedError
+        yield b""  # satisfy the async generator protocol
