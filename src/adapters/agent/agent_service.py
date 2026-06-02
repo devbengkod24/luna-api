@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator
 from langchain.agents import create_agent
@@ -175,7 +176,7 @@ class LangchainAgentService(IAgentService):
 
             yield LogEvent(content="Memproses dengan agent...")
 
-            config = {"configurable": {"thread_id": "agent-thread-1"}}
+            config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
             messages_to_send: list = []
             if system_prompt:

@@ -39,3 +39,7 @@ docker-compose.yml
 *.log
 .DS_Store
 README.md
+
+# User data — persisted via volume mount in production, not baked into image
+storage/faces/
+storage/rag/
