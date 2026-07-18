@@ -100,24 +100,42 @@ services:
       # GPU (-1 CPU, 0+ GPU)
       GPU_DEVICE: -1
 
+      # Ollama / LLM — latency experiment: minimize gpt-oss thinking.
+      # "low" | "medium" | "high"; unset/blank = model default. Revert by
+      # removing this line (or setting it back to medium).
+      OLLAMA_REASONING_EFFORT: low
+
+      # Agent tools: rag_search (Udinus KB) + search_web (Exa, current/external info).
+      EXA_API_KEY: "16aa6c02-58c2-4e8c-af32-01cb3157555b"
+      WEB_SEARCH_COUNT: 3
+      EXA_FETCH_TEXT: "false"             # false=highlights+bounded text (fast); true=full text
+      # EXA_LIVECRAWL: fallback           # freshness vs latency (cached by default)
+      # EXA_INCLUDE_DOMAINS: dinus.ac.id  # restrict to official (breaks general web)
+      RAG_TOP_K: 3
+
       # Face Recognition (InsightFace)
       ENABLE_FACE_RECOGNITION: true
       ENABLE_EMOTION_DETECTION: true
-      ENABLE_TTS: True
+      ENABLE_TTS: true
       FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
       
       # Device-Directed Speech Detection (LR-ASD active-speaker fusion).
-      # Off by default: the directedness gate then fails open to a facing-only
-      # check. Set true to fuse lip↔audio (needs requirements rebuild for
-      # python_speech_features + storage/models/lr_asd.pth present).
-      ENABLE_ASD: False
+      # When false the directedness gate fails open on the audio-visual dimension
+      # and degrades to a facing-only check. Needs the ONNX models at
+      # storage/models/asd/ (audio_frontend / visual_frontend / av_backend).
+      ENABLE_ASD: true
+      # Tuning knobs — calibrate from the `directedness:` INFO log, not by guess.
+      # FACING_THRESHOLD is provisional; see src/config.py for what the score means.
+      FACING_THRESHOLD: 0.35
+      ASD_SCORE_THRESHOLD: 0.5
+      ASD_PRESENCE_RATIO: 0.35
 
       TTS_PROVIDER: cartesia
-      CARTESIA_API_KEY: sk_car_CJnAoMzZzpAmBoHR5c8vLz
+      CARTESIA_API_KEY: sk_car_gCFeyFRDSbpWtLBtuLj4ih
       CARTESIA_VOICE_ID: b441c4fd-4910-4c55-ae56-f0291057e2cc
 
       # Speech / TTS
-      WHISPER_MODEL: small
+      WHISPER_MODEL: large-v3
 
     volumes:
       # - ./src:/app/src

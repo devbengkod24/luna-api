@@ -14,7 +14,7 @@ class FakeActiveSpeaker:
         self._scores = scores
         self.calls = 0
 
-    async def score(self, face_crops, pcm16, sample_rate):
+    async def score(self, face_crops, pcm16, sample_rate, fps=None):
         self.calls += 1
         return list(self._scores)
 

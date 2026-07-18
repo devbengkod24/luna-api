@@ -114,8 +114,15 @@ class IActiveSpeakerService(ABC):
 
     @abstractmethod
     async def score(
-        self, face_crops: list[Image], pcm16: bytes, sample_rate: int
+        self,
+        face_crops: list[Image],
+        pcm16: bytes,
+        sample_rate: int,
+        fps: float | None = None,
     ) -> list[float]:
+        """`fps` is the real delivered video fps for `face_crops`; the adapter
+        scales its MFCC window to it so lips and audio stay aligned. None falls
+        back to a nominal fps."""
         ...
 
 

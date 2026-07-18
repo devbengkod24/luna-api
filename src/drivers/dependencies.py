@@ -126,7 +126,6 @@ def _build_speech() -> tuple[WhisperSTTService | None, object | None]:
         stt = WhisperSTTService(
             model_size=settings.whisper_model,
             device=settings.gpu_device,
-            compute_type="int8",
         )
     else:
         logger.info("STT disabled (ENABLE_STT=False).")

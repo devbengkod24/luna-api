@@ -22,7 +22,6 @@ class WhisperSTTService(ISTTService):
         self,
         model_size: str | None = None,
         device: int | None = None,
-        compute_type: str | None = "float16",
     ):
         self.model_size = model_size or settings.whisper_model
 

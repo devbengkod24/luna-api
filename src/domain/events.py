@@ -42,6 +42,17 @@ class ToolResultEvent:
 
 
 @dataclass(frozen=True)
+class SourcesEvent:
+    """Structured web sources (title + url) from a search_web tool call.
+
+    Carried separately from the spoken answer so the client can render clickable
+    references while TTS reads only the answer text.
+    """
+    sources: list  # list[{"title": str, "url": str}]
+    type: str = "sources"
+
+
+@dataclass(frozen=True)
 class AssistantEvent:
     """Final assistant message for a turn (after agent completes)."""
     message: AIMessage
@@ -90,6 +101,7 @@ StreamEvent = (
     | TokenEvent
     | ToolCallEvent
     | ToolResultEvent
+    | SourcesEvent
     | AssistantEvent
     | TranscriptEvent
     | AudioEvent

@@ -1,8 +1,1 @@
--r base.txt
-
-# PyTorch GPU (CUDA 12.4)
-torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
-torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-
 onnxruntime-gpu==1.23.2

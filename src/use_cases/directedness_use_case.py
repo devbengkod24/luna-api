@@ -62,6 +62,7 @@ class DirectednessUseCase:
         candidate_crops: list[Image],
         facing_scores: list[float],
         candidate_track_id: int | None = None,
+        crop_fps: float | None = None,
     ) -> DirectednessVerdict:
         """Decide whether a segmented utterance is directed at the system.
 
@@ -93,7 +94,7 @@ class DirectednessUseCase:
 
         try:
             asd_scores = await self.active_speaker.score(
-                candidate_crops, pcm16, sample_rate
+                candidate_crops, pcm16, sample_rate, fps=crop_fps
             )
         except Exception:
             logger.exception("ASD scoring failed — failing open")

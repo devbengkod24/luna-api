@@ -3,12 +3,10 @@ import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator
 from langchain.agents import create_agent
-from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import AIMessage as LCAIMessage, HumanMessage, SystemMessage, ToolMessage as LCToolMessage
 from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 from nemoguardrails import LLMRails, RailsConfig
-from sympy import SympifyError, sympify
 
 from src.adapters.agent.middlewares.pseudo_tool_mitigation import strip_pseudo_tools_middleware
 from src.config import settings
@@ -27,6 +25,7 @@ from src.domain.events import (
     AssistantEvent,
     ErrorEvent,
     LogEvent,
+    SourcesEvent,
     StreamEvent,
     TokenEvent,
     ToolCallEvent,
@@ -64,6 +63,8 @@ class LangchainAgentService(IAgentService):
 
             repeat_penalty=settings.ollama_repeat_penalty,
             repeat_last_n=settings.ollama_repeat_last_n,
+
+            reasoning=settings.ollama_reasoning or None,
         )
 
         self.tools = self._create_tools()
@@ -85,71 +86,136 @@ class LangchainAgentService(IAgentService):
             self.rails = None
 
     def _create_tools(self):
-        @tool
-        def search_web(query: str) -> str:
-            """Search for GENERAL information from the internet (current news, world facts, real-time info).
+        web_search_fn = self._build_web_search()
+
+        @tool(response_format="content_and_artifact")
+        def search_web(query: str):
+            """Search the internet for information NOT covered by the provided Udinus context.
 
             Use this tool for:
-            - Current news and information (president, weather, prices, etc)
-            - General facts NOT related to Universitas Dian Nuswantoro
-            - Information requiring real-time data from the internet
+            - Current / real-time information (recent news, schedules, prices, public figures)
+            - Up-to-date Udinus info missing from the provided context
+            - General world facts outside the Udinus knowledge base
 
-            DO NOT use for questions about Udinus campus.
+            DO NOT use when the provided Udinus context already answers the question.
             """
+            # Returns (text_for_llm, sources) — sources ride on ToolMessage.artifact,
+            # unseen by the LLM, and are surfaced as a SourcesEvent for the client.
+            if web_search_fn is None:
+                return "Web search is not configured.", []
             try:
-                search_tool = DuckDuckGoSearchRun()
-                return search_tool.run(query)
+                return web_search_fn(query)
             except Exception as e:
-                return f"Web search error: {str(e)}"
-
-        @tool
-        def calculator(expression: str) -> str:
-            """Calculate safe mathematical expressions (+, -, *, /, **, sin, cos, etc)."""
-            try:
-                expr = sympify(expression, evaluate=True)
-                return f"{float(expr):.4f}"
-            except SympifyError:
-                return "Ekspresi tidak valid. Gunakan: 2+2, sin(30), sqrt(16)"
-            except Exception as e:
-                return f"Error: {str(e)}"
+                return f"Web search error: {str(e)}", []
 
         @tool
         async def rag_search(query: str) -> str:
-            """Search for INTERNAL information from Universitas Dian Nuswantoro (Udinus) knowledge base.
+            """Search the Universitas Dian Nuswantoro (Udinus) knowledge base.
 
-            Use this tool for:
-            - University profile, faculties, study programs of Udinus
-            - Student associations (HM), student organizations, campus organizations
-            - Academic procedures, admissions, new student registration
-            - Lecturer information, staff, campus organizational structure
-            - Academic calendar, campus event schedules
-            - Campus facilities, locations, infrastructure
-            - Curriculum, courses, study program syllabi
-            - Scholarships, financial aid, student support programs
+            Use this tool for Udinus-specific information:
+            - profile, faculties, study programs
+            - tuition, registration, heregistration
+            - scholarships, financial aid
+            - facilities, academic rules, campus organizations
 
-            DO NOT use for general information outside Udinus context.
+            Pass a standalone, keyword-rich query — resolve pronouns and follow-up
+            context from the conversation into an explicit query.
+            DO NOT use for general information outside the Udinus context.
             """
             try:
                 async with asyncio.timeout(settings.agent_tool_timeout_seconds):
-                    results = await self.rag_service.retrieve(query, limit=3)
-
+                    results = await self.rag_service.retrieve(query, limit=settings.rag_top_k)
                 if not results:
                     return "No relevant information found in Udinus knowledge base."
-
-                # Format results (RetrievalResultEntity)
-                formatted_results = []
+                formatted = []
                 for i, result in enumerate(results, 1):
-                    content = result.content if hasattr(result, "content") else result.get("content", "")
-                    score = result.score if hasattr(result, "score") else result.get("score", 0.0)
-                    formatted_results.append(
-                        f"[{i}] {content}\n  Relevance: {score:.4f}"
-                    )
-
-                return "\n\n".join(formatted_results)
+                    content = result.get("content", "") if isinstance(result, dict) else getattr(result, "content", "")
+                    score = result.get("score", 0.0) if isinstance(result, dict) else getattr(result, "score", 0.0)
+                    formatted.append(f"[{i}] {content}\n  Relevance: {score:.4f}")
+                return "\n\n".join(formatted)
             except Exception as e:
                 return f"RAG search error: {str(e)}"
 
-        return [search_web, calculator, rag_search]
+        return [search_web, rag_search]
+
+    @staticmethod
+    def _build_web_search():
+        """Build a callable(query)->str backed by Exa web search, or None if
+        unavailable (no API key, or langchain_exa not installed). langchain_exa
+        is imported lazily so the module still loads without the package."""
+        if not settings.exa_api_key:
+            logger.info("EXA_API_KEY not set — search_web unavailable.")
+            return None
+        try:
+            from langchain_exa import ExaSearchRetriever
+
+            # Exa's text option must be True or a dict (not False). Fast mode =
+            # highlights + bounded cached text (fewer tokens); rich mode = full text.
+            text_opts = True if settings.exa_fetch_text else {"max_characters": 1000}
+            retriever = ExaSearchRetriever(
+                exa_api_key=settings.exa_api_key,
+                k=settings.web_search_count,
+                type="auto",
+                highlights=True,
+                text_contents_options=text_opts,
+                include_domains=settings.exa_include_domains or None,
+                livecrawl=settings.exa_livecrawl or None,
+            )
+        except Exception as e:
+            logger.warning("Exa init failed (web search disabled): %s", e)
+            return None
+        logger.info(
+            "Web search: exa (k=%d, text=%s, domains=%s)",
+            settings.web_search_count, settings.exa_fetch_text,
+            settings.exa_include_domains or "any",
+        )
+
+        def _run(query: str):
+            docs = retriever.invoke(query)
+            return (
+                LangchainAgentService._format_web_docs(docs),
+                LangchainAgentService._extract_sources(docs),
+            )
+
+        return _run
+
+    @staticmethod
+    def _extract_sources(docs) -> list[dict]:
+        """Pull {title, url} out of retriever Documents, de-duplicated by url."""
+        sources: list[dict] = []
+        seen: set[str] = set()
+        for doc in docs or []:
+            meta = getattr(doc, "metadata", {}) or {}
+            url = meta.get("url") or meta.get("id") or ""
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            sources.append({"title": meta.get("title") or url, "url": url})
+        return sources
+
+    @staticmethod
+    def _format_web_docs(docs) -> str:
+        """Format Exa retriever Documents into a compact string for the LLM.
+
+        Prefers Exa's embedding-selected `highlights` (clean, relevant snippets)
+        over raw `page_content`, which carries page nav/boilerplate. Includes
+        title + url so the model can cite the source (see SOURCE ATTRIBUTION).
+        """
+        if not docs:
+            return "No web results found."
+        parts: list[str] = []
+        for i, doc in enumerate(docs, 1):
+            meta = getattr(doc, "metadata", {}) or {}
+            title = meta.get("title") or ""
+            url = meta.get("url") or meta.get("id") or ""
+            highlights = meta.get("highlights") or []
+            if highlights:
+                content = " … ".join(h.strip() for h in highlights if h and h.strip())
+            else:
+                content = (getattr(doc, "page_content", "") or "").strip()
+            header = " — ".join(x for x in (title, url) if x)
+            parts.append(f"[{i}] {header}\n{content}".strip())
+        return "\n\n".join(parts)
 
     async def generate_stream(
         self,
@@ -206,6 +272,11 @@ class LangchainAgentService(IAgentService):
                         tool_call_id=tool_msg.tool_call_id,
                         name=tool_msg.name,
                     )
+                    # search_web rides structured sources on .artifact (unseen by
+                    # the LLM) — surface them so the client can show references.
+                    artifact = getattr(tool_msg, "artifact", None)
+                    if artifact:
+                        yield SourcesEvent(sources=artifact)
 
                 elif kind == "on_chat_model_end":
                     ai_msg = event["data"]["output"]

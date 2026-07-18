@@ -76,6 +76,21 @@ def _crop_area(image: Image) -> int:
     return int(raw.shape[0]) * int(raw.shape[1])
 
 
+def _fps_from_timestamps(ts_list: list[int]) -> float | None:
+    """Effective video fps over a window, from crop capture timestamps (ms).
+
+    LR-ASD needs the real delivered fps to scale its MFCC window — the video
+    stream is latest-wins, so the rate is ≤ the FE target and jittery. Returns
+    None with <2 samples; the adapter then falls back to its nominal fps.
+    """
+    if len(ts_list) < 2:
+        return None
+    span_ms = max(ts_list) - min(ts_list)
+    if span_ms <= 0:
+        return None
+    return (len(ts_list) - 1) * 1000.0 / span_ms
+
+
 @router.websocket("/stream")
 async def session_stream(websocket: WebSocket):
     """Continuous audio+video session with VAD segmentation, device-directed
@@ -188,20 +203,28 @@ async def session_stream(websocket: WebSocket):
         for tid in [t for t, dq in list(crop_buffers.items()) if dq and dq[-1][0] < cutoff]:
             crop_buffers.pop(tid, None)
 
-    def _select_candidate(start_ts: int, end_ts: int) -> tuple[int | None, list[Image], list[float]]:
-        """Pick the closest (largest-crop) track present during the utterance."""
+    def _select_candidate(
+        start_ts: int, end_ts: int
+    ) -> tuple[int | None, list[Image], list[float], float | None]:
+        """Pick the closest (largest-crop) track present during the utterance.
+
+        Also returns that track's effective fps (from its crop timestamps) so the
+        ASD adapter can scale its MFCC window to the real delivered video rate.
+        """
         best_tid: int | None = None
         best_area = -1
-        best_crops: list[Image] = []
+        best_items: list[tuple[int, Image]] = []
         for tid, dq in crop_buffers.items():
-            crops = [c for (ts, c) in dq if start_ts <= ts <= end_ts]
-            if not crops:
+            items = [(ts, c) for (ts, c) in dq if start_ts <= ts <= end_ts]
+            if not items:
                 continue
-            area = max(_crop_area(c) for c in crops)
+            area = max(_crop_area(c) for (_, c) in items)
             if area > best_area:
-                best_area, best_tid, best_crops = area, tid, crops
+                best_area, best_tid, best_items = area, tid, items
+        crops = [c for (_, c) in best_items]
+        crop_fps = _fps_from_timestamps([ts for (ts, _) in best_items])
         facing = [s for (ts, s) in facing_buffer if start_ts <= ts <= end_ts]
-        return best_tid, best_crops, facing
+        return best_tid, crops, facing, crop_fps
 
     # --- Reply pipeline (directedness gate → STT → LLM → TTS) ---
 
@@ -218,18 +241,22 @@ async def session_stream(websocket: WebSocket):
         segmenter.set_responding(True)
         try:
             # --- Device-directed gate ---
-            candidate_tid, crops, facing = _select_candidate(start_ts - prebuffer_ms, end_ts)
+            candidate_tid, crops, facing, crop_fps = _select_candidate(
+                start_ts - prebuffer_ms, end_ts
+            )
             verdict = await directedness.evaluate(
                 pcm16=pcm,
                 sample_rate=sample_rate,
                 candidate_crops=crops,
                 facing_scores=facing,
                 candidate_track_id=candidate_tid,
+                crop_fps=crop_fps,
             )
             logger.info(
-                "directedness: directed=%s reason=%s facing=%.2f asd=%.2f ratio=%.2f track=%s",
+                "directedness: directed=%s reason=%s facing=%.2f asd=%.2f ratio=%.2f track=%s fps=%s",
                 verdict.directed, verdict.reason, verdict.facing_score,
                 verdict.asd_score, verdict.asd_active_ratio, verdict.candidate_track_id,
+                f"{crop_fps:.1f}" if crop_fps else "n/a",
             )
             if not verdict.directed:
                 await _safe_send(websocket, {"event": "not_directed", "payload": {"reason": verdict.reason}})

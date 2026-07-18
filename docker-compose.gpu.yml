@@ -50,3 +50,4 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
       # GPU (-1 CPU, 0+ GPU)
       GPU_DEVICE: 0
+      FACE_RECOGNITION_CTX_ID: 0

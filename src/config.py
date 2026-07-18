@@ -85,6 +85,13 @@ class Settings(BaseSettings):
     ollama_repeat_penalty: float = Field(default=1.18, alias="OLLAMA_REPEAT_PENALTY")
     ollama_repeat_last_n: int = Field(default=64, alias="OLLAMA_REPEAT_LAST_N")
     ollama_num_batch: int = Field(default=128, alias="OLLAMA_NUM_BATCH")
+    # Reasoning effort for reasoning models (e.g. gpt-oss): "low" | "medium" |
+    # "high". Forwarded to Ollama as the `think` option via ChatOllama(reasoning=).
+    # None = model default (gpt-oss reasons at medium and leaks <think> tags into
+    # content). "low" minimizes thinking latency and routes reasoning to a
+    # separate field so the answer stream stays clean. Empty string → treated as
+    # None. Latency experiment: set OLLAMA_REASONING_EFFORT=low.
+    ollama_reasoning: str | None = Field(default=None, alias="OLLAMA_REASONING_EFFORT")
 
     gpu_device: int = Field(default=-1, alias="GPU_DEVICE")  # -1 for CPU, 0+ for GPU
 
@@ -114,6 +121,8 @@ class Settings(BaseSettings):
     )  # "token" | "semantic"
     rag_chunk_size: int = Field(default=512, alias="RAG_CHUNK_SIZE")
     rag_chunk_overlap: int = Field(default=50, alias="RAG_CHUNK_OVERLAP")
+    # Number of chunks the rag_search tool retrieves from the Udinus KB.
+    rag_top_k: int = Field(default=3, alias="RAG_TOP_K")
 
     # Chat
     chat_max_prompt_length: int = 10000
@@ -127,6 +136,27 @@ class Settings(BaseSettings):
     )
     agent_tool_timeout_seconds: float = Field(
         default=20.0, alias="AGENT_TOOL_TIMEOUT_SECONDS"
+    )
+
+    # Web search (Exa) — backs the search_web agent tool, used for current/external
+    # info or when rag_search returns no relevant Udinus result.
+    # Empty/unset key → search_web reports itself unavailable and the model
+    # answers from rag_search + its own knowledge.
+    exa_api_key: str | None = Field(default=None, alias="EXA_API_KEY")
+    web_search_count: int = Field(default=3, alias="WEB_SEARCH_COUNT")  # k results
+    # Exa: fetch full page text (slower, richer) vs highlights-only (faster —
+    # embedding-selected snippets, good for short spoken answers). Voice default
+    # is highlights-only; flip true if web answers come back too thin.
+    exa_fetch_text: bool = Field(default=False, alias="EXA_FETCH_TEXT")
+    # Exa livecrawl: None/"never" (cached, fast) | "fallback" | "always" (fresh,
+    # slower). Set "fallback" if you need the latest campus announcements.
+    exa_livecrawl: str | None = Field(default=None, alias="EXA_LIVECRAWL")
+    # Optional domain allow-list (comma-separated), e.g. "dinus.ac.id". Empty =
+    # general web. Restricting makes campus-current-info come from official
+    # sources but BREAKS general queries (news/public figures) — leave empty
+    # unless web is used ONLY for campus.
+    exa_include_domains: list[str] = Field(
+        default_factory=list, alias="EXA_INCLUDE_DOMAINS"
     )
 
     # Emotion Detection
@@ -174,7 +204,7 @@ class Settings(BaseSettings):
 
     # Speech-to-Text (Faster Whisper)
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
-    whisper_model: str = Field(default="large-v3", alias="WHISPER_MODEL")
+    whisper_model: str = Field(default="small", alias="WHISPER_MODEL")
     whisper_language: str = Field(default="id", alias="WHISPER_LANGUAGE")
     whisper_beam_size: int = Field(default=5, alias="WHISPER_BEAM_SIZE")
     # Live voice path is latency-critical and utterances are short commands —
@@ -240,8 +270,24 @@ class Settings(BaseSettings):
     # Fraction of the utterance's frames that must clear asd_score_threshold for
     # the candidate to count as the active speaker.
     asd_presence_ratio: float = Field(default=0.35, alias="ASD_PRESENCE_RATIO")
+    # Nominal video fps used to scale the LR-ASD MFCC window when the real crop
+    # fps can't be measured (winlen=0.025*25/fps, winstep=0.010*25/fps). The
+    # session router measures the actual delivered fps per utterance; this is the
+    # fallback. LR-ASD is calibrated to 25 fps — see asd_service.py.
+    asd_nominal_fps: float = Field(default=25.0, alias="ASD_NOMINAL_FPS")
     # Mean facing score (FE MediaPipe metadata, 0..1) required over the utterance.
-    facing_threshold: float = Field(default=0.5, alias="FACING_THRESHOLD")
+    # The FE score is "fraction of margin left to the frontal-cone boundary along
+    # the worst axis" (min of the yaw/pitch/proximity ramps, pitch ramp peaked at
+    # the user's observed neutral pose). So 0.35 means "stayed within the inner
+    # 65% of the cone, on average". The mean spans the whole utterance window —
+    # including the ~600 ms of trailing silence the VAD needs — so heads that
+    # relax at the end drag it down; don't set this near 1.
+    #
+    # PROVISIONAL. Calibrate from the `facing=` field of the `directedness:` INFO
+    # log on the real kiosk before trusting it. Was 0.5 against an older score
+    # that multiplied the ramps and peaked at the cone's geometric centre, which
+    # rejected ~85% of the poses the FE pre-gate accepts.
+    facing_threshold: float = Field(default=0.35, alias="FACING_THRESHOLD")
 
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
@@ -272,6 +318,17 @@ class Settings(BaseSettings):
 
     # Request / streaming
     request_id_header: str = Field(default="X-Request-ID", alias="REQUEST_ID_HEADER")
+
+    @field_validator("exa_include_domains", mode="before")
+    @classmethod
+    def _parse_exa_include_domains(cls, v):
+        if v is None or v == "":
+            return []
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return [part.strip() for part in v.split(",") if part.strip()]
+        return v
 
     @field_validator("cors_origins", mode="before")
     @classmethod

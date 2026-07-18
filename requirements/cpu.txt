@@ -1,7 +1,3 @@
--r base.txt
-
-# PyTorch CPU
 torch --index-url https://download.pytorch.org/whl/cpu
-# torchvision --index-url https://download.pytorch.org/whl/cpu  # SLIM: not imported in code. torch kept (silero-vad needs it); torchaudio still pulled by silero-vad.
 
 onnxruntime==1.23.2

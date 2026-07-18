@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *src/use_cases/*.py) bad=$(grep -nE '^[[:space:]]*(from|import)[[:space:]]+(fastapi|sqlalchemy|qdrant_client|minio|langchain|llama_index|cv2|insightface)([[:space:]\\.]|$)' \"$f\" || true); if [ -n \"$bad\" ]; then echo \"Clean Architecture violation in $f — use_cases must not import infra:\" >&2; echo \"$bad\" >&2; exit 2; fi ;; esac; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

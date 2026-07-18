@@ -9,6 +9,7 @@ from src.domain.events import (
     DoneEvent,
     ErrorEvent,
     LogEvent,
+    SourcesEvent,
     StreamEvent,
     TokenEvent,
     ToolCallEvent,
@@ -32,6 +33,8 @@ def stream_event_to_dict(event: StreamEvent) -> dict[str, Any]:
             "tool_call_id": event.tool_call_id,
             "name": event.name,
         }
+    if isinstance(event, SourcesEvent):
+        return {"type": "sources", "items": event.sources}
     if isinstance(event, AssistantEvent):
         msg = event.message
         return {

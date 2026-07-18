@@ -27,7 +27,15 @@ from src.ports.vision import IActiveSpeakerService
 logger = logging.getLogger(__name__)
 
 _CROP_SIZE = 112
-_MFCC_PER_FRAME = 4  # 100 fps audio MFCC / 25 fps video
+_MFCC_PER_FRAME = 4  # LR-ASD: 4 audio MFCC frames per 1 video frame (fixed 4:1)
+_REF_FPS = 25.0  # AVA/LR-ASD training fps; MFCC window scales by _REF_FPS / fps
+_MIN_FPS = 5.0  # clamp measured fps so the MFCC window stays sane
+_MAX_FPS = 120.0
+_NFFT_FLOOR = 512  # python_speech_features default; the 25 fps window (400 smp) fits
+
+
+def _next_pow2(n: int) -> int:
+    return 1 << max(0, n - 1).bit_length()
 
 
 class ActiveSpeakerService(IActiveSpeakerService):
@@ -49,6 +57,7 @@ class ActiveSpeakerService(IActiveSpeakerService):
         self.av_path = av_model_path or settings.asd_av_model_path
         self._providers = providers or ["CPUExecutionProvider"]
         self._num_threads = num_threads or settings.asd_num_threads
+        self._nominal_fps = settings.asd_nominal_fps
 
         # ASD runs in short bursts only at SPEECH_END (before LLM starts), so
         # claim threads to finish fast — single-thread was ~2× slower than
@@ -88,7 +97,11 @@ class ActiveSpeakerService(IActiveSpeakerService):
         return np.stack(frames).astype(np.float32)
 
     def _score_sync(
-        self, face_crops: list[Image], pcm16: bytes, sample_rate: int
+        self,
+        face_crops: list[Image],
+        pcm16: bytes,
+        sample_rate: int,
+        fps: float | None,
     ) -> list[float]:
         if sample_rate != 16000:
             raise ValueError(f"ASD requires 16 kHz audio, got {sample_rate} Hz")
@@ -96,17 +109,49 @@ class ActiveSpeakerService(IActiveSpeakerService):
             return []
 
         video = self._crops_to_array(face_crops)
-        if video.shape[0] == 0:
-            return []
-
-        audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32)
-        mfcc = self._mfcc(audio, 16000, numcep=13, winlen=0.025, winstep=0.010)
-
-        n_v = min(video.shape[0], mfcc.shape[0] // _MFCC_PER_FRAME)
+        n_v = video.shape[0]
         if n_v < 1:
             return []
-        audio_feat = mfcc[: n_v * _MFCC_PER_FRAME, :].astype(np.float32)[None, :, :]
-        video_feat = video[:n_v, :, :][None, :, :, :]
+
+        # LR-ASD is trained at 25 fps video with a 10 ms-hop MFCC (100 fps) — i.e.
+        # exactly 4 audio frames per video frame. The reference dataLoader keeps
+        # that 4:1 ratio *and the real timescale* by scaling the MFCC window to
+        # the actual video fps: winlen=0.025*25/fps, winstep=0.010*25/fps (the
+        # factor is 1.0 at 25 fps). Feeding a different fps (e.g. 12) as if it
+        # were 25 desyncs lip motion from the audio and discards ~half the audio,
+        # which collapses the speaking score. So we scale by the measured fps.
+        fps_eff = float(fps) if fps and fps > 0 else self._nominal_fps
+        fps_eff = max(_MIN_FPS, min(_MAX_FPS, fps_eff))
+        scale = _REF_FPS / fps_eff
+        winlen = 0.025 * scale
+        winstep = 0.010 * scale
+        # Below 25 fps the window grows past the 512-pt default FFT, which would
+        # silently truncate the frame; size the FFT to the window (floored at 512
+        # so the canonical 25 fps path is bit-for-bit the reference).
+        nfft = max(_NFFT_FLOOR, _next_pow2(int(np.ceil(winlen * sample_rate))))
+
+        audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32)
+        mfcc = self._mfcc(
+            audio,
+            sample_rate,
+            numcep=13,
+            winlen=winlen,
+            winstep=winstep,
+            nfft=nfft,
+        ).astype(np.float32)
+        if mfcc.shape[0] < 1:
+            return []
+
+        # Pin the audio to exactly 4 MFCC frames per crop, using *every* crop
+        # (full lip information). Pad by repeating the last MFCC frame when the
+        # audio is a touch short, truncate when long — mirroring the reference's
+        # `audio[:numFrames*4]`.
+        need = n_v * _MFCC_PER_FRAME
+        if mfcc.shape[0] < need:
+            pad = np.repeat(mfcc[-1:, :], need - mfcc.shape[0], axis=0)
+            mfcc = np.concatenate([mfcc, pad], axis=0)
+        audio_feat = mfcc[:need, :][None, :, :]
+        video_feat = video[None, :, :, :]
 
         audio_embed = self._audio.run(None, {"audio_feature": audio_feat})[0]
         visual_embed = self._visual.run(None, {"visual_feature": video_feat})[0]
@@ -117,8 +162,12 @@ class ActiveSpeakerService(IActiveSpeakerService):
         return [float(p) for p in probs]
 
     async def score(
-        self, face_crops: list[Image], pcm16: bytes, sample_rate: int
+        self,
+        face_crops: list[Image],
+        pcm16: bytes,
+        sample_rate: int,
+        fps: float | None = None,
     ) -> list[float]:
         return await asyncio.to_thread(
-            self._score_sync, face_crops, pcm16, sample_rate
+            self._score_sync, face_crops, pcm16, sample_rate, fps
         )
