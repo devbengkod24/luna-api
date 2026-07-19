@@ -146,7 +146,7 @@ def _build_speech() -> tuple[WhisperSTTService | None, object | None]:
                     )
                 else:
                     tts = CartesiaTTSService(
-                        api_key=settings.cartesia_api_key,
+                        api_key=settings.cartesia_api_keys,
                         voice_id=settings.cartesia_voice_id,
                         model_id=settings.cartesia_model_id,
                         sample_rate=settings.cartesia_sample_rate,

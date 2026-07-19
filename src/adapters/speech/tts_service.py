@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import threading
+from collections.abc import Sequence
 
 import numpy as np
 import torch
@@ -426,32 +427,99 @@ class F5TTSIndonesianService(ITTSService):
             raise
 
 
+def _mask_key(key: str) -> str:
+    """Last 4 characters only — API keys must never reach the logs in full."""
+    return f"...{key[-4:]}" if len(key) > 4 else "..."
+
+
+# What counts as "this key is finished" rather than "try again in a moment".
+#
+# Cartesia documents `quota_exceeded` as needing an account top-up, so retrying
+# the same key is pointless. 401/403 mean the key is invalid or revoked, which
+# is the same situation from our side. 402 covers a payment-required response
+# from API versions that predate structured error codes.
+#
+# Everything else stays out of this set on purpose — above all
+# `concurrency_limited` (429), which is explicitly documented as retryable.
+# Treating a brief traffic spike as exhaustion would burn the entire key pool in
+# seconds and leave the kiosk mute.
+_KEY_EXHAUSTED_ERROR_CODES = {"quota_exceeded"}
+_KEY_EXHAUSTED_STATUSES = {401, 402, 403}
+
+
+def _is_key_exhausted(exc: Exception) -> bool:
+    if getattr(exc, "status_code", None) in _KEY_EXHAUSTED_STATUSES:
+        return True
+    # Structured errors (Cartesia-Version 2026-03-01+) carry the code in the body.
+    body = getattr(exc, "body", None)
+    return (
+        isinstance(body, dict)
+        and body.get("error_code") in _KEY_EXHAUSTED_ERROR_CODES
+    )
+
+
+class _CartesiaKeyPool:
+    """Ordered API keys with failover to the next one on exhaustion.
+
+    Retirement lasts for the process lifetime. A key that is out of credits will
+    keep failing until someone tops the account up, so re-testing it on every
+    request would add a doomed round-trip to every single synthesis.
+    """
+
+    def __init__(self, keys: Sequence[str]) -> None:
+        self._keys = list(keys)
+        if not self._keys:
+            raise ValueError("CartesiaTTSService requires at least one API key.")
+        self._retired: set[str] = set()
+
+    def current(self) -> str | None:
+        return next((k for k in self._keys if k not in self._retired), None)
+
+    def retire(self, key: str) -> str | None:
+        """Mark `key` spent; return the next usable key, or None if that was the last."""
+        if key not in self._retired:
+            self._retired.add(key)
+            logger.warning(
+                "Cartesia key %s exhausted — falling back (%d of %d keys left).",
+                _mask_key(key),
+                len(self._keys) - len(self._retired),
+                len(self._keys),
+            )
+        return self.current()
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+
 class CartesiaTTSService(ITTSService):
     """Text-to-Speech adapter using Cartesia cloud API with SSE streaming.
 
     Streams raw PCM16 chunks per sentence instead of waiting for the full WAV,
     which lets the client start playback before synthesis is complete.
     Set TTS_PROVIDER=cartesia, CARTESIA_API_KEY, and CARTESIA_VOICE_ID to activate.
+
+    `api_key` may be a single key or several; with several, synthesis fails over
+    to the next key when the current one runs out of credits.
     """
 
     supports_streaming = True
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | Sequence[str],
         voice_id: str,
         model_id: str = "sonic-3.5",
         sample_rate: int = 44100,
         language: str = "id",
     ) -> None:
-        self._api_key = api_key
+        self._keys = _CartesiaKeyPool([api_key] if isinstance(api_key, str) else api_key)
         self._voice_id = voice_id
         self._model_id = model_id
         self.sample_rate = sample_rate
         self._language = language
         logger.info(
-            "CartesiaTTSService initialized (model=%s, voice=%s, sr=%s, lang=%s)",
-            model_id, voice_id, sample_rate, language,
+            "CartesiaTTSService initialized (model=%s, voice=%s, sr=%s, lang=%s, keys=%d)",
+            model_id, voice_id, sample_rate, language, len(self._keys),
         )
 
     async def synthesize(self, text: str, character: int) -> str:
@@ -463,36 +531,60 @@ class CartesiaTTSService(ITTSService):
             raise ValueError("Cartesia returned no audio for the given text.")
         return self._pcm_to_base64_wav(b"".join(chunks), self.sample_rate)
 
+    async def _stream_with_key(self, transcript: str, api_key: str):
+        from cartesia import AsyncCartesia
+
+        async with AsyncCartesia(api_key=api_key) as client:
+            stream = await client.tts.generate_sse(
+                model_id=self._model_id,
+                transcript=transcript,
+                voice={"mode": "id", "id": self._voice_id},
+                output_format={
+                    "container": "raw",
+                    "encoding": "pcm_s16le",
+                    "sample_rate": self.sample_rate,
+                },
+                language=self._language,
+            )
+            async for event in stream:
+                if event.type == "chunk" and event.audio:
+                    yield event.audio
+
     async def synthesize_stream(
         self, text: str, character: int
     ):
-        """Yield raw PCM16 byte chunks via Cartesia SSE API."""
-        from cartesia import AsyncCartesia
-
+        """Yield raw PCM16 byte chunks via Cartesia SSE API, failing over between keys."""
         normalized = normalize_for_tts(text)
         if not normalized.strip():
             return
 
         logger.info("Cartesia streaming TTS (chars=%s).", len(normalized))
-        try:
-            async with AsyncCartesia(api_key=self._api_key) as client:
-                stream = await client.tts.generate_sse(
-                    model_id=self._model_id,
-                    transcript=normalized,
-                    voice={"mode": "id", "id": self._voice_id},
-                    output_format={
-                        "container": "raw",
-                        "encoding": "pcm_s16le",
-                        "sample_rate": self.sample_rate,
-                    },
-                    language=self._language,
+
+        while True:
+            api_key = self._keys.current()
+            if api_key is None:
+                raise RuntimeError(
+                    "All Cartesia API keys are exhausted — top up the account or "
+                    "append another key to CARTESIA_API_KEY."
                 )
-                async for event in stream:
-                    if event.type == "chunk" and event.audio:
-                        yield event.audio
-        except Exception as e:
-            logger.error("Cartesia TTS streaming failed: %s", e)
-            raise
+
+            streamed = False
+            try:
+                async for pcm in self._stream_with_key(normalized, api_key):
+                    streamed = True
+                    yield pcm
+                return
+            except Exception as e:
+                # Once bytes are on the wire the client is already playing them,
+                # so retrying on another key would splice two takes of the same
+                # sentence together. Only a failure before the first chunk is
+                # recoverable.
+                if streamed or not _is_key_exhausted(e):
+                    logger.error("Cartesia TTS streaming failed: %s", e)
+                    raise
+                if self._keys.retire(api_key) is None:
+                    logger.error("Cartesia TTS failed — no keys left: %s", e)
+                    raise
 
     @staticmethod
     def _pcm_to_base64_wav(pcm: bytes, sample_rate: int) -> str:

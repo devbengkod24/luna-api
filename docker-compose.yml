@@ -123,7 +123,7 @@ services:
       # When false the directedness gate fails open on the audio-visual dimension
       # and degrades to a facing-only check. Needs the ONNX models at
       # storage/models/asd/ (audio_frontend / visual_frontend / av_backend).
-      ENABLE_ASD: true
+      ENABLE_ASD: false
       # Tuning knobs — calibrate from the `directedness:` INFO log, not by guess.
       # FACING_THRESHOLD is provisional; see src/config.py for what the score means.
       FACING_THRESHOLD: 0.35
@@ -131,11 +131,13 @@ services:
       ASD_PRESENCE_RATIO: 0.35
 
       TTS_PROVIDER: cartesia
-      CARTESIA_API_KEY: sk_car_gCFeyFRDSbpWtLBtuLj4ih
+      # Comma-separated for failover: keys are used in order, and the next one
+      # takes over when Cartesia reports the current key out of credits.
+      CARTESIA_API_KEY: sk_car_rsMdvvtEFz4zvuvEmgqGdz, sk_car_LBvVBZyEYFfexyjJWmEHmp
       CARTESIA_VOICE_ID: b441c4fd-4910-4c55-ae56-f0291057e2cc
 
       # Speech / TTS
-      WHISPER_MODEL: large-v3
+      WHISPER_MODEL: turbo
 
     volumes:
       # - ./src:/app/src

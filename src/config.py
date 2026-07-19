@@ -304,11 +304,19 @@ class Settings(BaseSettings):
     )
 
     # Cartesia TTS (cloud streaming, TTS_PROVIDER=cartesia)
+    # Accepts a comma-separated list. Keys are tried in order and a key is only
+    # abandoned when Cartesia says it is out of credits (or the key is dead) —
+    # see CartesiaTTSService for what counts as exhausted.
     cartesia_api_key: str | None = Field(default=None, alias="CARTESIA_API_KEY")
     cartesia_voice_id: str = Field(default="", alias="CARTESIA_VOICE_ID")
     cartesia_model_id: str = Field(default="sonic-3.5", alias="CARTESIA_MODEL_ID")
     cartesia_sample_rate: int = Field(default=44100, alias="CARTESIA_SAMPLE_RATE")
     cartesia_language: str = Field(default="id", alias="CARTESIA_LANGUAGE")
+
+    @property
+    def cartesia_api_keys(self) -> list[str]:
+        """Cartesia keys in failover order, parsed from the comma-separated env."""
+        return [k.strip() for k in (self.cartesia_api_key or "").split(",") if k.strip()]
 
     # Rate limiting constants
     frame_timeout_seconds: float = 5.0
