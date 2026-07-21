@@ -15,6 +15,8 @@ from src.adapters import (
     ActiveSpeakerService,
     CartesiaTTSService,
     ChatterboxSTTSService,
+    DeepgramSTTService,
+    DeepgramStreamingSTTService,
     EmoferService,
     EmotionDetectionService,
     F5TTSIndonesianService,
@@ -39,6 +41,8 @@ from src.adapters.vad import SileroVadService, WebRtcVadService
 from src.config import settings
 from src.ports.identifiers import IUuidGenerator
 from src.ports.prompts import IPromptRepository
+from src.ports.services import ISTTService
+from src.ports.streaming_stt import IStreamingSTTService
 from src.ports.vad import IVadService
 from src.shared.exceptions import ServiceUnavailableException
 from src.use_cases import (
@@ -70,7 +74,10 @@ class AppContainer:
     db_connection: DatabaseConnection | None = None
     rag_service: LlamaIndexRAGService | None = None
     storage_service: MinIOStorageService | None = None
-    stt_service: WhisperSTTService | None = None
+    stt_service: ISTTService | None = None
+    # Set only when STT_PROVIDER=deepgram-stream. When present the session WS
+    # skips the VAD segmenter entirely and lets Deepgram drive turn boundaries.
+    streaming_stt_service: IStreamingSTTService | None = None
     tts_service: object | None = None
     agent_service: LangchainAgentService | None = None
     face_service: FaceStore | None = None
@@ -91,6 +98,7 @@ def initialize_container() -> AppContainer:
         container.rag_service = LlamaIndexRAGService()
         container.storage_service = _build_storage()
         container.stt_service, container.tts_service = _build_speech()
+        container.streaming_stt_service = _build_streaming_stt()
         container.agent_service = LangchainAgentService(rag_service=container.rag_service)
         container.face_service, container.face_recognition = _build_face()
         (
@@ -118,15 +126,68 @@ def _build_storage() -> MinIOStorageService | None:
         return None
 
 
-def _build_speech() -> tuple[WhisperSTTService | None, object | None]:
-    stt: WhisperSTTService | None = None
+def _build_streaming_stt() -> IStreamingSTTService | None:
+    """Build the streaming STT adapter, or None if this provider isn't selected.
+
+    Returning None is the signal to the session WS that it should keep using the
+    local VAD segmenter, so a misconfigured cloud stream degrades to the working
+    local path rather than to silence.
+    """
+    if not settings.enable_stt:
+        return None
+    if (settings.stt_provider or "").strip().lower() not in _STREAMING_PROVIDERS:
+        return None
+    try:
+        if not settings.deepgram_api_key:
+            raise ValueError("DEEPGRAM_API_KEY is not set")
+        return DeepgramStreamingSTTService(api_key=settings.deepgram_api_key)
+    except Exception as e:
+        logger.warning(
+            "Could not initialize Deepgram streaming STT (%s) — session WS will "
+            "fall back to local VAD + batch STT.", e
+        )
+        return None
+
+
+_STREAMING_PROVIDERS = {"deepgram-stream", "deepgram_stream", "deepgram-streaming"}
+
+
+def _build_stt() -> ISTTService:
+    """Build the STT adapter for STT_PROVIDER, falling back to Whisper.
+
+    Deepgram is a network dependency, so a bad key or a missing SDK must not
+    leave the kiosk deaf — it degrades to the local Whisper model instead.
+
+    The streaming provider still builds a batch adapter here: it is what the
+    REST `/chat` speech endpoint uses, and what the session WS falls back to if
+    the stream can't be opened.
+    """
+    provider = (settings.stt_provider or "whisper").strip().lower()
+
+    if provider in _STREAMING_PROVIDERS or provider == "deepgram":
+        try:
+            if not settings.deepgram_api_key:
+                raise ValueError("DEEPGRAM_API_KEY is not set")
+            return DeepgramSTTService(api_key=settings.deepgram_api_key)
+        except Exception as e:
+            logger.warning(
+                "Could not initialize Deepgram STT (%s) — falling back to Whisper.", e
+            )
+    elif provider != "whisper":
+        logger.warning("Unknown STT_PROVIDER=%r — falling back to Whisper.", provider)
+
+    return WhisperSTTService(
+        model_size=settings.whisper_model,
+        device=settings.gpu_device,
+    )
+
+
+def _build_speech() -> tuple[ISTTService | None, object | None]:
+    stt: ISTTService | None = None
     tts: object | None = None
 
     if settings.enable_stt:
-        stt = WhisperSTTService(
-            model_size=settings.whisper_model,
-            device=settings.gpu_device,
-        )
+        stt = _build_stt()
     else:
         logger.info("STT disabled (ENABLE_STT=False).")
 

@@ -116,7 +116,7 @@ services:
       # Face Recognition (InsightFace)
       ENABLE_FACE_RECOGNITION: true
       ENABLE_EMOTION_DETECTION: true
-      ENABLE_TTS: true
+      ENABLE_TTS: false
       FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
       
       # Device-Directed Speech Detection (LR-ASD active-speaker fusion).
@@ -133,11 +133,32 @@ services:
       TTS_PROVIDER: cartesia
       # Comma-separated for failover: keys are used in order, and the next one
       # takes over when Cartesia reports the current key out of credits.
-      CARTESIA_API_KEY: sk_car_rsMdvvtEFz4zvuvEmgqGdz, sk_car_LBvVBZyEYFfexyjJWmEHmp
+      CARTESIA_API_KEY: sk_car_rsMdvvtEFz4zvuvEmgqGdz
       CARTESIA_VOICE_ID: b441c4fd-4910-4c55-ae56-f0291057e2cc
 
       # Speech / TTS
-      WHISPER_MODEL: turbo
+      # whisper (local) | deepgram (cloud REST, Silero still does turn detection)
+      # | deepgram-stream (cloud WebSocket, Deepgram does turn detection too —
+      # no local VAD runs at all). Falls back to Whisper at startup if the key is
+      # missing or the SDK fails to load.
+      STT_PROVIDER: deepgram-stream
+      DEEPGRAM_API_KEY: 61a8f8173e65207d3ab9b48a5adc7a93efece451
+      DEEPGRAM_MODEL: nova-3
+      DEEPGRAM_LANGUAGE: id
+      # Streaming turn detection. These replace VOICE_SPEECH_END_FRAMES on the
+      # deepgram-stream path. Deepgram's own endpointing default is 10ms, which
+      # is far too twitchy for a kiosk.
+      DEEPGRAM_ENDPOINTING_MS: 600
+      DEEPGRAM_UTTERANCE_END_MS: 1200
+      # Off because the kiosk interrupts itself: with no local VAD, TTS leaking
+      # back through the mic reads as the user starting to speak, and browser
+      # echo cancellation does not survive a speaker at conversational volume.
+      # Audio heard mid-reply is dropped instead of answered. Turn on only with
+      # a headset, where the mic genuinely cannot hear the output.
+      DEEPGRAM_STREAM_BARGE_IN: false
+      # nova-3 keyterm prompting for campus vocabulary, comma-separated.
+      DEEPGRAM_KEYTERM: "Udinus"
+      WHISPER_MODEL: large-v3
 
     volumes:
       # - ./src:/app/src

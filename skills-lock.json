@@ -4,8 +4,8 @@
     "cartesia-api": {
       "source": "cartesia-ai/skills",
       "sourceType": "github",
-      "skillPath": "skills/api/SKILL.md",
-      "computedHash": "c2e3a47d47e6c15a23248c09a94c57c97f373085afb0f5e3dbf0e8148b0e3957"
+      "skillPath": "skills/cartesia-api/SKILL.md",
+      "computedHash": "dad7e10c7075f23b408800f88984c2093b75b6f34beda8a49c06161814fff2ff"
     },
     "deep-agents-core": {
       "source": "langchain-ai/langchain-skills",
@@ -24,6 +24,36 @@
       "sourceType": "github",
       "skillPath": "config/skills/deep-agents-orchestration/SKILL.md",
       "computedHash": "1570f8d88e1233edc3306d28224604172b016aedba0ced2efa2dd8e38e28ae62"
+    },
+    "deepgram-python-audio-intelligence": {
+      "source": "deepgram/deepgram-python-sdk",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/deepgram-python-audio-intelligence/SKILL.md",
+      "computedHash": "c084e7ae9c3fb976eed5420cfde2ca26e5de88e97ccad14febee867bebb7a66b"
+    },
+    "deepgram-python-conversational-stt": {
+      "source": "deepgram/deepgram-python-sdk",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/deepgram-python-conversational-stt/SKILL.md",
+      "computedHash": "53cb568d7ebb1744dba7c2c23237cad32f01bada6689146274e15133d4d5378f"
+    },
+    "deepgram-python-management-api": {
+      "source": "deepgram/deepgram-python-sdk",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/deepgram-python-management-api/SKILL.md",
+      "computedHash": "d553b92e6ac71bcf5348197be7cb2a59d1830ff479db031ca241cb937c787bfc"
+    },
+    "deepgram-python-speech-to-text": {
+      "source": "deepgram/deepgram-python-sdk",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/deepgram-python-speech-to-text/SKILL.md",
+      "computedHash": "30ddb569205b5430031bec9d43172d17aecb5d85ea69949a1c38afee636ac28b"
+    },
+    "deepgram-python-text-intelligence": {
+      "source": "deepgram/deepgram-python-sdk",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/deepgram-python-text-intelligence/SKILL.md",
+      "computedHash": "60da7e6fc1a480fa5d193186dcfdd284d43c415edea6693cfa858821ede322f3"
     },
     "framework-selection": {
       "source": "langchain-ai/langchain-skills",

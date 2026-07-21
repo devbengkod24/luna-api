@@ -34,21 +34,24 @@ class VadSegmenter:
         speech_end_frames: int = 25,
         prebuffer_frames: int = 7,
         max_utterance_frames: int = 1000,
+        barge_in_start_frames: int = 10,
     ) -> None:
         self.vad = vad
         self.speech_start_frames = speech_start_frames
         self.speech_end_frames = speech_end_frames
         self.max_utterance_frames = max_utterance_frames
+        self.barge_in_start_frames = barge_in_start_frames
 
         self._prebuffer: deque[bytes] = deque(maxlen=prebuffer_frames)
         self._utterance: list[bytes] = []
         self._is_speaking = False
         self._speech_streak = 0
         self._silence_streak = 0
-        # When the assistant is producing a reply (LLM thinking, TTS streaming),
-        # we deliberately stop watching VAD. Barge-in is handled out-of-band
-        # via a hotword listener on the client; raw VAD would false-trigger on
-        # ambient noise / TTS speaker leak and cancel valid replies.
+        # While the assistant is replying (LLM thinking, TTS streaming) VAD keeps
+        # running, but a turn only starts after `barge_in_start_frames` — a much
+        # longer run of speech than normal. The mic is carrying whatever leaks
+        # past the browser's echo cancellation plus room noise at that moment, so
+        # the ordinary threshold would let the kiosk interrupt itself.
         self._is_responding = False
 
     @property
@@ -79,8 +82,6 @@ class VadSegmenter:
 
     def push(self, frame: bytes) -> SegmenterTick:
         """Feed one PCM-16 mono frame. Returns segmenter state transitions."""
-        if self._is_responding:
-            return SegmenterTick()
         if len(frame) != self.frame_bytes:
             return SegmenterTick()
 
@@ -92,7 +93,12 @@ class VadSegmenter:
                 self._speech_streak += 1
             else:
                 self._speech_streak = 0
-            if self._speech_streak >= self.speech_start_frames:
+            required = (
+                self.barge_in_start_frames
+                if self._is_responding
+                else self.speech_start_frames
+            )
+            if self._speech_streak >= required:
                 self._is_speaking = True
                 self._silence_streak = 0
                 # Seed utterance with prebuffer so we don't clip the start.

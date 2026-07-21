@@ -202,8 +202,16 @@ class Settings(BaseSettings):
         default=2.0, alias="VISION_THROTTLE_EMIT_INTERVAL"
     )
 
-    # Speech-to-Text (Faster Whisper)
+    # Speech-to-Text
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
+    # "whisper" (local faster-whisper), "deepgram" (cloud REST, local Silero VAD
+    # still owns turn detection), or "deepgram-stream" (cloud WebSocket —
+    # Deepgram owns endpointing too, so local VAD does NOT run).
+    # Factory in dependencies.py auto-falls back to whisper if deepgram is
+    # misconfigured (missing key / SDK not installed).
+    stt_provider: str = Field(default="whisper", alias="STT_PROVIDER")
+
+    # Faster Whisper (STT_PROVIDER=whisper)
     whisper_model: str = Field(default="small", alias="WHISPER_MODEL")
     whisper_language: str = Field(default="id", alias="WHISPER_LANGUAGE")
     whisper_beam_size: int = Field(default=5, alias="WHISPER_BEAM_SIZE")
@@ -212,6 +220,48 @@ class Settings(BaseSettings):
     # negligible accuracy loss. Chat/file uploads keep the higher-quality beam
     # via `whisper_beam_size`.
     whisper_voice_beam_size: int = Field(default=5, alias="WHISPER_VOICE_BEAM_SIZE")
+
+    # Deepgram STT (cloud REST, STT_PROVIDER=deepgram)
+    deepgram_api_key: str | None = Field(default=None, alias="DEEPGRAM_API_KEY")
+    # nova-3 is the flagship and has supported Indonesian since Jan 2026. Older
+    # docs/blog posts predate that — check the live language table, not memory,
+    # before assuming a language is nova-2-only.
+    deepgram_model: str = Field(default="nova-3", alias="DEEPGRAM_MODEL")
+    deepgram_language: str = Field(default="id", alias="DEEPGRAM_LANGUAGE")
+    # Punctuation + number/date formatting. Costs nothing extra and makes the
+    # transcript read better in the LLM prompt and the chat transcript.
+    deepgram_smart_format: bool = Field(default=True, alias="DEEPGRAM_SMART_FORMAT")
+    # Hard ceiling per request. The live voice path is latency-critical: a hung
+    # Deepgram call blocks the turn, so fail fast rather than let the user wait.
+    deepgram_timeout_seconds: int = Field(default=15, alias="DEEPGRAM_TIMEOUT_SECONDS")
+
+    # Deepgram streaming (STT_PROVIDER=deepgram-stream). Local VAD is bypassed
+    # entirely on this path — these two settings replace VOICE_SPEECH_END_FRAMES.
+    # Silence (ms) before Deepgram's audio VAD emits speech_final. Its own docs
+    # warn background noise can suppress this — hence the utterance_end backstop.
+    # Deepgram's default is 10 ms, which is far too twitchy for a kiosk.
+    deepgram_endpointing_ms: int = Field(default=350, alias="DEEPGRAM_ENDPOINTING_MS")
+    # Word-gap (ms) before UtteranceEnd fires. Transcript-based, so it ignores
+    # non-speech noise. Minimum useful value is ~1000.
+    deepgram_utterance_end_ms: int = Field(
+        default=1000, alias="DEEPGRAM_UTTERANCE_END_MS"
+    )
+    # nova-3 keyterm prompting — bias toward campus vocabulary that generic
+    # models mangle (lecturer names, program names, "Udinus"). Comma-separated.
+    deepgram_keyterm: str = Field(default="", alias="DEEPGRAM_KEYTERM")
+    # With no local VAD, TTS leaking back through the mic makes Deepgram report
+    # speech while Luna is talking, and she cancels her own reply. Browser echo
+    # cancellation does not survive a kiosk speaker at conversational volume, so
+    # this defaults off: audio heard mid-reply is dropped rather than answered.
+    # Set true only where the mic genuinely cannot hear the speaker (headset).
+    deepgram_stream_barge_in: bool = Field(
+        default=False, alias="DEEPGRAM_STREAM_BARGE_IN"
+    )
+
+    @property
+    def deepgram_keyterm_list(self) -> list[str]:
+        """Keyterms parsed from the comma-separated env."""
+        return [k.strip() for k in (self.deepgram_keyterm or "").split(",") if k.strip()]
 
     # Voice WebSocket / VAD
     enable_voice_ws: bool = Field(default=True, alias="ENABLE_VOICE_WS")
@@ -225,6 +275,14 @@ class Settings(BaseSettings):
     voice_speech_start_frames: int = Field(
         default=3, alias="VOICE_SPEECH_START_FRAMES"
     )  # consecutive speech frames to enter SPEAKING (~90ms)
+    voice_barge_in_start_frames: int = Field(
+        default=10, alias="VOICE_BARGE_IN_START_FRAMES"
+    )  # consecutive speech frames to interrupt Luna mid-reply (~300ms).
+    # Deliberately far stricter than voice_speech_start_frames: while she is
+    # talking the mic also carries whatever leaks past the browser's echo
+    # cancellation, plus room noise. The ~90ms that is fine for starting a turn
+    # in a quiet room would cut her off constantly in a crowd. Raise this if the
+    # kiosk interrupts itself; lower it if barge-in feels sluggish.
     voice_speech_end_frames: int = Field(
         default=20, alias="VOICE_SPEECH_END_FRAMES"
     )  # consecutive silence frames to end utterance (~600ms). Lower = snappier

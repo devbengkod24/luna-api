@@ -57,6 +57,8 @@ numpy>=1.26.0,<2.0.0
 
 # STT
 faster-whisper==1.2.1
+# Cloud STT (STT_PROVIDER=deepgram); faster-whisper stays the local fallback.
+deepgram-sdk==7.5.0
 
 # Emotion Detection
 # transformers==5.2.0  # SLIM: only for EMOTION_PROVIDER=huggingface and MMS-TTS. Unused with emofer(ONNX)+cartesia. Re-enable to switch back.
