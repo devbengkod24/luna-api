@@ -361,7 +361,13 @@ def _strip_markdown(text: str) -> str:
 def _normalize_punctuation(text: str) -> str:
     for src, dst in {
         "“": '"', "”": '"', "‘": "'", "’": "'",
-        "—": "-", "–": "-", "…": ".",
+        # Every dash variant has to land on ASCII "-", because the number-range
+        # rule further down ("2025-2029" -> "... sampai ...") only matches that.
+        # The LLM routinely emits U+2011 NON-BREAKING HYPHEN (measured: 3 of 4
+        # replies), and NFKC folds it to U+2010 rather than ASCII — so without
+        # these the range rule silently missed and TTS spoke the raw dash.
+        "—": "-", "–": "-", "‐": "-", "‑": "-", "‒": "-", "―": "-", "−": "-",
+        "…": ".",
     }.items():
         text = text.replace(src, dst)
     text = re.sub(r"!{2,}", "!", text)
