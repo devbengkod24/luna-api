@@ -22,10 +22,6 @@ class IAgentService(ABC):
         ...
 
     @abstractmethod
-    async def generate_title(self, title_prompt: str) -> str:
-        ...
-
-    @abstractmethod
     async def preprocess_tts(self, text: str, system_prompt: str) -> str:
         ...
 

@@ -110,13 +110,26 @@ services:
       WEB_SEARCH_COUNT: 3
       EXA_FETCH_TEXT: "false"             # false=highlights+bounded text (fast); true=full text
       # EXA_LIVECRAWL: fallback           # freshness vs latency (cached by default)
-      # EXA_INCLUDE_DOMAINS: dinus.ac.id  # restrict to official (breaks general web)
+      # EXA_INCLUDE_DOMAINS: dinus.ac.id  # pins scope="general" too — normally leave empty
       RAG_TOP_K: 3
+
+      # Domains the scope="campus" branch of search_web is pinned to. Keeps
+      # campus answers on official sites even when the model rewrites the query
+      # into English (unpinned, that returns LinkedIn profiles of other
+      # universities' rectors). Subdomains match automatically.
+      EXA_CAMPUS_DOMAINS: dinus.ac.id
+
+      # OFF while the Qdrant KB is empty: rag_search would always return
+      # "nothing found", costing a full extra LLM round-trip (~1.6s) before the
+      # model falls back to search_web. This also swaps the prompt's tool policy
+      # to the web-first variant (src/prompts/tool-policy-web.txt).
+      # Set back to "true" after seeding: python -m src.seeder rag
+      ENABLE_RAG_TOOL: "false"
 
       # Face Recognition (InsightFace)
       ENABLE_FACE_RECOGNITION: true
       ENABLE_EMOTION_DETECTION: true
-      ENABLE_TTS: true
+      ENABLE_TTS: false
       FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
       
       # Device-Directed Speech Detection (LR-ASD active-speaker fusion).
@@ -129,6 +142,37 @@ services:
       FACING_THRESHOLD: 0.35
       ASD_SCORE_THRESHOLD: 0.5
       ASD_PRESENCE_RATIO: 0.35
+
+      # Barge-in — talking over Luna cancels the reply.
+      # "vad" = just start talking; "hotword" = only "stop"/"berhenti" + button.
+      # Calibrate from the `barge-in accepted/rejected` INFO logs on the real
+      # kiosk. Switch the mode to "hotword" if the acoustics turn out hopeless.
+      #
+      # Barge-in fires when RATIO of the last WINDOW_FRAMES were speech (15 x
+      # 30 ms = 450 ms of context, 60% => 9 frames). A sliding ratio, not a
+      # consecutive run: human speech has micro-gaps and echo cancellers drop
+      # the near-end talker in bursts during double-talk, so an unbroken streak
+      # almost never happened.
+      #
+      # Tune from the `barge-in watch: peak N/M` log emitted after every reply:
+      #   peak just under M   -> lower the RATIO
+      #   peak near 0         -> the mic isn't hearing the user over the
+      #                          speaker; barge-in won't work until that is
+      #                          fixed (see the mic constraints in
+      #                          luna-web sessionWebSocket.js)
+      #
+      # SETTLE_FRAMES (8 x 30 ms = ~240 ms) is dropped after the cut, covering
+      # the round-trip until the client silences the speaker plus the echo
+      # canceller re-converging. Raise this FIRST if barge-in transcripts still
+      # come back garbled.
+      VOICE_BARGE_IN_MODE: vad
+      VOICE_BARGE_IN_WINDOW_FRAMES: 15
+      VOICE_BARGE_IN_RATIO: 0.6
+      VOICE_BARGE_IN_SETTLE_FRAMES: 8
+
+      # ~800 ms of silence ends an utterance. 600 ms cut off anyone who paused
+      # to think mid-sentence — they had to talk fast to be heard at all.
+      VOICE_SPEECH_END_FRAMES: 27
 
       TTS_PROVIDER: cartesia
       # Comma-separated for failover: keys are used in order, and the next one

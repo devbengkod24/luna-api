@@ -21,6 +21,51 @@ from src.shared.exceptions import LunaException
 
 logger = logging.getLogger(__name__)
 
+# Libraries that are chatty at INFO/DEBUG and drown out application logs.
+# httpx is deliberately NOT here — one line per Ollama/Exa call is the cheapest
+# latency trace we have.
+_NOISY_LOGGERS = (
+    "httpcore",
+    "urllib3",
+    "watchfiles",
+    "filelock",
+    "fsspec",
+    "PIL",
+    "asyncio",
+    # Dumps the full Colang event object for every guardrail check — several
+    # hundred characters per request, and ~50 lines of action registration at
+    # startup. Nothing actionable at INFO.
+    "nemoguardrails",
+)
+
+
+def configure_logging() -> None:
+    """Attach a handler to the root logger so `logger.info()` in src/ is emitted.
+
+    Uvicorn configures only its own `uvicorn.*` loggers (with propagate=False),
+    leaving the root logger bare — so without this every INFO log in the app is
+    dropped by logging's last-resort handler, which passes WARNING and above
+    only. Called at import time, after uvicorn has loaded its own config, so the
+    two don't clobber each other and uvicorn's access logs are not duplicated.
+    """
+    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-8s %(name)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(level)
+
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
+
+
+configure_logging()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

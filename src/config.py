@@ -1,10 +1,17 @@
 """Application configuration."""
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# pydantic-settings JSON-decodes env values for complex types (list, dict)
+# *before* any `mode="before"` validator runs, so a plain comma-separated
+# `FOO=a,b` raises SettingsError instead of reaching our parser. NoDecode hands
+# the raw string over untouched and lets the validators below split it.
+CsvList = Annotated[list[str], NoDecode]
 
 
 class Settings(BaseSettings):
@@ -23,6 +30,14 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", alias="ENVIRONMENT")
     debug: bool = Field(default=True, alias="DEBUG")
     api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
+    # Root log level. Without an explicit logging config the root logger has no
+    # handler, so every logger.info() in src/ is silently dropped (uvicorn only
+    # configures its own `uvicorn.*` loggers). See configure_logging() in
+    # drivers/main.py. "DEBUG" | "INFO" | "WARNING" | "ERROR".
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    # IANA zone used for user-facing timestamps (conversation titles). Containers
+    # run on UTC, so without this a title would read 7 hours behind the kiosk.
+    app_timezone: str = Field(default="Asia/Jakarta", alias="APP_TIMEZONE")
 
     # Database
     postgres_host: str
@@ -123,6 +138,13 @@ class Settings(BaseSettings):
     rag_chunk_overlap: int = Field(default=50, alias="RAG_CHUNK_OVERLAP")
     # Number of chunks the rag_search tool retrieves from the Udinus KB.
     rag_top_k: int = Field(default=3, alias="RAG_TOP_K")
+    # Register the `rag_search` tool at all. Set false while the Qdrant KB is
+    # empty: rag_search then always returns "nothing found", which costs a full
+    # extra LLM round-trip before the model falls back to search_web (measured
+    # ~1.6s per campus question). With it off, the tool policy switches to a
+    # web-first variant — see prompts/tool-policy-*.txt. Flip back to true after
+    # seeding (`python -m src.seeder rag`).
+    enable_rag_tool: bool = Field(default=True, alias="ENABLE_RAG_TOOL")
 
     # Chat
     chat_max_prompt_length: int = 10000
@@ -155,8 +177,17 @@ class Settings(BaseSettings):
     # general web. Restricting makes campus-current-info come from official
     # sources but BREAKS general queries (news/public figures) — leave empty
     # unless web is used ONLY for campus.
-    exa_include_domains: list[str] = Field(
+    exa_include_domains: CsvList = Field(
         default_factory=list, alias="EXA_INCLUDE_DOMAINS"
+    )
+    # Domains the `scope="campus"` branch of search_web is pinned to. Measured
+    # motivation: when the model rewrites a campus query into English, an
+    # unpinned Exa search returns LinkedIn profiles (including other
+    # universities' rectors) instead of dinus.ac.id. Pinning makes the campus
+    # branch deterministic; `scope="general"` stays unfiltered so news/public-
+    # figure questions still work. Matches subdomains (warta./publikasi./repo.).
+    exa_campus_domains: CsvList = Field(
+        default_factory=lambda: ["dinus.ac.id"], alias="EXA_CAMPUS_DOMAINS"
     )
 
     # Emotion Detection
@@ -226,8 +257,8 @@ class Settings(BaseSettings):
         default=3, alias="VOICE_SPEECH_START_FRAMES"
     )  # consecutive speech frames to enter SPEAKING (~90ms)
     voice_speech_end_frames: int = Field(
-        default=20, alias="VOICE_SPEECH_END_FRAMES"
-    )  # consecutive silence frames to end utterance (~600ms). Lower = snappier
+        default=27, alias="VOICE_SPEECH_END_FRAMES"
+    )  # consecutive silence frames to end utterance (~800ms). Lower = snappier
     # turn-taking but risks cutting off hesitant speakers; raise toward 25 (~750ms)
     # if the kiosk audience pauses mid-sentence a lot.
     voice_prebuffer_frames: int = Field(
@@ -235,6 +266,51 @@ class Settings(BaseSettings):
     )  # frames retained before speech_start (~210ms)
     voice_max_utterance_seconds: float = Field(
         default=30.0, alias="VOICE_MAX_UTTERANCE_SECONDS"
+    )
+
+    # --- Barge-in (talking over the assistant) ---
+    # "vad"     — the user can just start talking; sustained speech while the
+    #             reply plays cancels it (fused with the facing signal below).
+    # "hotword" — only the client-side "stop"/"berhenti" listener and the manual
+    #             button can interrupt. Fall back to this if the kiosk's speaker
+    #             leaks past echo cancellation badly enough to false-trigger.
+    voice_barge_in_mode: str = Field(default="vad", alias="VOICE_BARGE_IN_MODE")
+    # Barge-in is decided over a SLIDING WINDOW, not a consecutive run. Requiring
+    # an unbroken streak was too brittle: human speech has micro-gaps between
+    # words, and during double-talk the browser's echo canceller attenuates the
+    # near-end talker in bursts — so a single sub-threshold frame kept resetting
+    # the count and barge-in rarely fired. A ratio over a window tolerates those
+    # dropouts while still rejecting TTS leak, which is intermittent rather than
+    # dense. Window is also how much of the user's opening words is lost, since
+    # audio captured during detection is discarded as contaminated.
+    voice_barge_in_window_frames: int = Field(
+        default=15, alias="VOICE_BARGE_IN_WINDOW_FRAMES"
+    )  # 15 x 30 ms = 450 ms of context
+    voice_barge_in_ratio: float = Field(default=0.6, alias="VOICE_BARGE_IN_RATIO")
+    # Frames dropped after a barge-in is honoured, covering the round-trip until
+    # the client actually silences the speaker plus the echo canceller's
+    # re-convergence. Everything captured in that gap is part assistant, and
+    # splicing it in front of the user's sentence is what ruined the transcript.
+    # ~250 ms at 30 ms frames. This is the FIRST knob to raise if barge-in
+    # transcripts still come back garbled.
+    voice_barge_in_settle_frames: int = Field(
+        default=8, alias="VOICE_BARGE_IN_SETTLE_FRAMES"
+    )
+    # A barge-in is only honoured if the mean facing score over this trailing
+    # window clears FACING_THRESHOLD — someone talking to a friend beside the
+    # kiosk should not cancel the reply. Fails OPEN: with no facing samples
+    # (camera off / voice-only), barge-in works on audio alone.
+    voice_barge_in_facing_window_ms: int = Field(
+        default=1500, alias="VOICE_BARGE_IN_FACING_WINDOW_MS"
+    )
+    # Safety net for the "playback finished" signal the client sends once its
+    # audio queue drains. The reply's audio is generated much faster than it
+    # plays (measured: a 61 s reply finished streaming in 16 s), so the listening
+    # gate must stay closed until playback really ends — otherwise the kiosk
+    # spends the difference transcribing its own speaker. If the client never
+    # reports (disconnect, muted tab), release after this many seconds anyway.
+    voice_playback_grace_seconds: float = Field(
+        default=120.0, alias="VOICE_PLAYBACK_GRACE_SECONDS"
     )
 
     # Device-Directed Speech Detection (Active Speaker Detection + facing fusion)
@@ -322,12 +398,12 @@ class Settings(BaseSettings):
     frame_timeout_seconds: float = 5.0
 
     # CORS
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")
+    cors_origins: CsvList = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")
 
     # Request / streaming
     request_id_header: str = Field(default="X-Request-ID", alias="REQUEST_ID_HEADER")
 
-    @field_validator("exa_include_domains", mode="before")
+    @field_validator("exa_include_domains", "exa_campus_domains", mode="before")
     @classmethod
     def _parse_exa_include_domains(cls, v):
         if v is None or v == "":

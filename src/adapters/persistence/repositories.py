@@ -78,6 +78,16 @@ class ConversationRepository(IConversationRepository):
 
 
 class MessageRepository(IMessageRepository):
+    """Message persistence.
+
+    Ordering is by `id`, never by `created_at`. `created_at` defaults to
+    Postgres `now()`, which is the *transaction* timestamp — every message a
+    single turn writes (user, assistant, tool result, final answer) lands with
+    an identical value, so ordering by it breaks ties arbitrarily and hands the
+    LLM a scrambled conversation. `id` is UUIDv7: time-ordered, and Postgres
+    sorts uuid byte-wise, so it sorts chronologically and ties are impossible.
+    """
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -100,7 +110,7 @@ class MessageRepository(IMessageRepository):
         stmt = (
             select(MessageModel)
             .where(MessageModel.conversation_id == conversation_id)
-            .order_by(MessageModel.created_at.asc())
+            .order_by(MessageModel.id.asc())
         )
         result = await self.session.execute(stmt)
         models = result.scalars().all()
@@ -112,12 +122,12 @@ class MessageRepository(IMessageRepository):
         stmt = (
             select(MessageModel)
             .where(MessageModel.conversation_id == conversation_id)
-            .order_by(MessageModel.created_at.desc())
+            .order_by(MessageModel.id.desc())
             .limit(limit)
         )
         result = await self.session.execute(stmt)
         models = list(result.scalars().all())
-        models.reverse()  # return ascending by created_at
+        models.reverse()  # return ascending by id (= insertion order)
         return [MessageMapper.to_entity(m) for m in models]
 
     async def get_by_conversation_id_cursor(

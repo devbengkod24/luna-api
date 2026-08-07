@@ -56,17 +56,26 @@ class WhisperSTTService(ISTTService):
         return " ".join(seg.text.strip() for seg in segments).strip()
 
     def _run_transcribe_array(self, audio: np.ndarray) -> str:
-        # Input comes from voice WS where segmenter has already applied VAD
-        # (silero/webrtc per VAD_PROVIDER). Disabling Whisper's internal VAD
-        # avoids re-running it and saves 50-150ms per turn. The live voice path
-        # also uses a smaller beam (`whisper_voice_beam_size`, default greedy)
-        # since latency matters more than the marginal accuracy of beam search
-        # on short utterances.
+        # vad_filter must stay ON even though the segmenter already gated this
+        # audio. Whisper hallucinates fluent text out of silence and room noise
+        # — measured on this model: pure silence decodes to "Terima kasih." and
+        # white noise to "selamat menikmati", both with no_speech_prob=0.000 and
+        # avg_logprob=-0.13. Confidence-based filtering cannot catch that; the
+        # model is genuinely certain. Whisper's own VAD drops the audio before
+        # the decoder ever sees it, returning "".
+        #
+        # It is not a latency trade either, contrary to what this comment used
+        # to claim: real speech measured 0.65s with the filter vs 0.64s without
+        # (median of 4), and noise short-circuits in 0.01s instead of 0.6s.
+        #
+        # The live voice path still uses a smaller beam
+        # (`whisper_voice_beam_size`) since latency matters more than the
+        # marginal accuracy of beam search on short utterances.
         segments, _ = self.model.transcribe(
             audio,
             language=settings.whisper_language,
             beam_size=settings.whisper_voice_beam_size,
-            vad_filter=False,
+            vad_filter=True,
         )
         return " ".join(seg.text.strip() for seg in segments).strip()
 

@@ -46,7 +46,6 @@ from src.use_cases import (
     DeleteFaceUseCase,
     DeleteFileUseCase,
     DeleteMessageUseCase,
-    GenerateTitleUseCase,
     GetFaceUseCase,
     IngestFileUseCase,
     ListConversationMessagesUseCase,
@@ -291,28 +290,6 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
 
 # --- Response use case factories ---
 
-def make_title_runner(container: AppContainer):
-    """Build a detached title-generation runner that uses its OWN db session.
-
-    The streaming pipeline persists messages on the request-scoped session; the
-    title side-task must not share it (concurrent use of a single AsyncSession,
-    and the task can outlive the request). Each call opens and commits its own
-    session via the connection's `get_session()`.
-    """
-    async def _run(conversation_id: str, user_input: str) -> None:
-        if container.db_connection is None or container.agent_service is None:
-            return
-        async for session in container.db_connection.get_session():
-            use_case = GenerateTitleUseCase(
-                conversation_repo=ConversationRepository(session),
-                agent_service=container.agent_service,
-                prompt_repo=container.prompt_repository,
-            )
-            await use_case.execute(conversation_id, user_input)
-
-    return _run
-
-
 async def get_response_text_use_case(
     request: Request,
     session: AsyncSession = Depends(get_db_session),
@@ -324,7 +301,6 @@ async def get_response_text_use_case(
         agent_service=container.agent_service,
         tts_service=container.tts_service,
         prompt_repo=container.prompt_repository,
-        title_runner=make_title_runner(container),
     )
 
 
@@ -340,7 +316,6 @@ async def get_response_speech_use_case(
         tts_service=container.tts_service,
         stt_service=container.stt_service,
         prompt_repo=container.prompt_repository,
-        title_runner=make_title_runner(container),
     )
 
 

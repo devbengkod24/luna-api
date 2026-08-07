@@ -117,7 +117,9 @@ class MMSTTSService(ITTSService):
         text = normalize_for_tts(text)
 
         try:
-            logger.info(f"Synthesizing text: {text[:50]}...")
+            # DEBUG, not INFO: this is assistant reply content (see CLAUDE.md —
+            # conversation text must not land in INFO logs).
+            logger.debug("Synthesizing text (chars=%d)", len(text or ""))
 
             # Tokenize input text
             inputs = self.tokenizer(text, return_tensors="pt")
@@ -250,7 +252,7 @@ class ChatterboxSTTSService(ITTSService):
         text = normalize_for_tts(text)
 
         try:
-            logger.info("Chatterbox synthesizing text: %s...", (text or "")[:50])
+            logger.debug("Chatterbox synthesizing text (chars=%d)", len(text or ""))
 
             # `generate` usually returns a torch Tensor waveform.
             prompt = self._character_prompt_path(character)
