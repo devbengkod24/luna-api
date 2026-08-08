@@ -105,7 +105,30 @@ Don't add new module-level globals unless there's no other option — prefer `ap
 
 ### TTS providers (`_init_speech` in `dependencies.py`)
 
-`TTS_PROVIDER` selects the adapter: `mms` (default fallback), `chatterbox` / `chatterbox-id` / `chatterbox_indonesia`, or `f5` / `f5-tts` / `f5_tts` / `f5-indonesia` / `f5_indo`. STT is always Whisper (when `ENABLE_STT=true`). Emotion uses `huggingface` or `emofer` (ONNX) per `EMOTION_PROVIDER`.
+`TTS_PROVIDER` selects the adapter: `mms` (default fallback), `chatterbox` / `chatterbox-id` / `chatterbox_indonesia`, or `f5` / `f5-tts` / `f5_tts` / `f5-indonesia` / `f5_indo`. STT is always Whisper (when `ENABLE_STT=true`).
+
+### Emotion detection (`src/adapters/vision/emotiefflib_service.py`)
+
+One adapter only: EmotiEffLib's ONNX recognizer, `EMOTIEFFLIB_MODEL` (default
+`enet_b2_7`, 7-class AffectNet). Gated by `ENABLE_EMOTION_DETECTION`.
+
+Three things that are easy to break here:
+
+- **emotiefflib is installed `--no-deps` in the Dockerfiles, never from
+  `requirements/base.txt`.** It declares `opencv-python`, which collides with
+  this repo's `opencv-python-headless` (same `cv2`, and the non-headless build
+  needs libGL). Everything else it needs is already present.
+- **Weights are baked at build time** via `get_model_path_onnx()`. Otherwise the
+  library downloads them into `~/.emotiefflib` on first use — a network
+  round-trip at kiosk start-up, lost on every container recreate.
+- **The adapter re-crops from the full frame with a margin and converts to RGB.**
+  The pipeline hands it the tight 112×112 ArcFace-aligned crop, which suits
+  recognition embeddings but not AffectNet models; and the library's ONNX
+  preprocessing does no colour conversion of its own.
+
+Labels stay lowercase English (`happy`, `sad`, …) — one vocabulary shared by the
+FE overlay, `base.txt`'s MATCH USER ENERGY rules and the stored conversation
+context. Indonesian is resolved in the frontend via `translateEmotion`.
 
 ### VAD providers (`_build_vad` in `dependencies.py`)
 

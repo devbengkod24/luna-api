@@ -129,7 +129,12 @@ services:
       # Face Recognition (InsightFace)
       ENABLE_FACE_RECOGNITION: true
       ENABLE_EMOTION_DETECTION: true
-      ENABLE_TTS: false
+
+      # Emotion: EmotiEffLib, AffectNet-trained EfficientNet-B2, 7 classes.
+      # Weights are baked into the image — changing this to another name from
+      # get_model_list() means rebuilding, or it downloads at first use.
+      EMOTIEFFLIB_MODEL: enet_b2_7
+      ENABLE_TTS: true
       FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
       
       # Device-Directed Speech Detection (LR-ASD active-speaker fusion).

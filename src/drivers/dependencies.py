@@ -15,8 +15,7 @@ from src.adapters import (
     ActiveSpeakerService,
     CartesiaTTSService,
     ChatterboxSTTSService,
-    EmoferService,
-    EmotionDetectionService,
+    EmotiEffLibService,
     F5TTSIndonesianService,
     FaceRecognitionService,
     FaceStore,
@@ -74,7 +73,7 @@ class AppContainer:
     agent_service: LangchainAgentService | None = None
     face_service: FaceStore | None = None
     face_recognition: FaceRecognitionService | None = None
-    emotion_service: EmotionDetectionService | EmoferService | None = None
+    emotion_service: EmotiEffLibService | None = None
     tracker_service: TrackerService | None = None
     asd_service: ActiveSpeakerService | None = None
     prompt_repository: IPromptRepository | None = None
@@ -226,7 +225,7 @@ def _build_vad() -> IVadService | None:
 
 
 def _build_vision() -> tuple[
-    EmotionDetectionService | EmoferService | None,
+    EmotiEffLibService | None,
     TrackerService | None,
     ActiveSpeakerService | None,
 ]:
@@ -241,16 +240,14 @@ def _build_vision() -> tuple[
     except Exception as e:
         logger.warning("Could not initialize tracker service: %s", e)
 
-    emotion: EmotionDetectionService | EmoferService | None = None
+    emotion: EmotiEffLibService | None = None
     if settings.enable_emotion_detection:
         try:
-            provider = (settings.emotion_provider or "huggingface").strip().lower()
-            if provider == "emofer":
-                emotion = EmoferService()
-                logger.info("Emotion detection service initialized (provider=emofer)")
-            else:
-                emotion = EmotionDetectionService()
-                logger.info("Emotion detection service initialized (provider=huggingface)")
+            emotion = EmotiEffLibService()
+            logger.info(
+                "Emotion detection service initialized (model=%s)",
+                settings.emotiefflib_model,
+            )
         except Exception as e:
             logger.warning("Could not initialize emotion detection service: %s", e)
     else:

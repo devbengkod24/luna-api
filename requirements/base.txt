@@ -59,9 +59,15 @@ numpy>=1.26.0,<2.0.0
 faster-whisper==1.2.1
 
 # Emotion Detection
-# transformers==5.2.0  # SLIM: only for EMOTION_PROVIDER=huggingface and MMS-TTS. Unused with emofer(ONNX)+cartesia. Re-enable to switch back.
+# transformers==5.2.0  # SLIM: only needed by the MMS-TTS adapter. Unused with cartesia. Re-enable to switch back.
 onnxruntime>=1.16.0
-# tensorflow==2.20.0
+onnx>=1.16.0          # EmotiEffLib's ONNX path edits the graph to strip the classifier head
+# emotiefflib is installed with --no-deps in the Dockerfile, NOT from here: it
+# declares `opencv-python`, which collides with the `opencv-python-headless`
+# above (same `cv2` module, and the non-headless build needs libGL). Every one
+# of its other requirements — numpy, onnx, onnxruntime, pillow — is already
+# satisfied. Do not move it into this file.
+# tensorflow==2.20.0  # only needed for EmotiEffLib's engagement classifier (.h5 + tf.keras at runtime)
 # pillow==11.1.0
 
 # Utils

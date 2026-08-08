@@ -13,8 +13,7 @@ from .speech.tts_service import (
 )
 from .storage.minio_service import MinIOStorageService
 from .vision.asd_service import ActiveSpeakerService
-from .vision.emofer_service import EmoferService
-from .vision.emotion_service import EmotionDetectionService
+from .vision.emotiefflib_service import EmotiEffLibService
 from .vision.face_recognition_service import FaceRecognitionService
 from .vision.face_store import FaceStore
 from .vision.tracker_service import TrackerService
@@ -31,8 +30,7 @@ __all__ = [
     "FaceStore",
     "FaceRecognitionService",
     "TrackerService",
-    "EmotionDetectionService",
-    "EmoferService",
+    "EmotiEffLibService",
     "ActiveSpeakerService",
     "FilePromptRepository",
     "StdUuidGenerator",

@@ -194,18 +194,18 @@ class Settings(BaseSettings):
     enable_emotion_detection: bool = Field(
         default=True, alias="ENABLE_EMOTION_DETECTION"
     )
-    emotion_provider: str = Field(
-        default="emofer", alias="EMOTION_PROVIDER"
-    )  # "huggingface" or "emofer"
-    emotion_model: str = Field(
-        default="dima806/facial_emotions_image_detection", alias="EMOTION_MODEL"
-    )
-    # Emofer ONNX model paths (used when EMOTION_PROVIDER=emofer)
-    emofer_vad_model_path: str = Field(
-        default="storage/models/vad_multitask.onnx", alias="EMOFER_VAD_MODEL_PATH"
-    )
-    emofer_emotic_model_path: str = Field(
-        default="storage/models/emotic.onnx", alias="EMOFER_EMOTIC_MODEL_PATH"
+    # EmotiEffLib model name — must be one of emotiefflib.facial_analysis
+    # .get_model_list(). "enet_b2_7" is the 7-class AffectNet EfficientNet-B2
+    # (30.8 MB) and its labels map 1:1 onto the vocabulary the rest of Luna
+    # speaks. The "_8" variants add a Contempt class; "_va_mtl" ones also emit
+    # valence/arousal. Note there is no "enet_b2_8_best" ONNX in the upstream
+    # repo despite the .pt of that name — only enet_b2_8 and enet_b2_7.
+    #
+    # Weights are baked into the image at build time (see Dockerfile). Changing
+    # this to another name means rebuilding, or the library downloads it at
+    # first use — a network round-trip during kiosk start-up.
+    emotiefflib_model: str = Field(
+        default="enet_b2_7", alias="EMOTIEFFLIB_MODEL"
     )
 
     # Vision / Tracker (ByteTrack)
