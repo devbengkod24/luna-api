@@ -1,7 +1,6 @@
 """Use cases module - business logic layer."""
 
 from .response_use_case import (
-    GenerateTitleUseCase,
     ResponseTextUseCase,
     ResponseSpeechUseCase,
 )
@@ -18,18 +17,21 @@ from .file_use_case import (
     DeleteFileUseCase,
     IngestFileUseCase,
 )
+from .photo_use_case import (
+    SavePhotoUseCase,
+    ListPhotosUseCase,
+    GetPhotoUseCase,
+    DeletePhotoUseCase,
+)
 from .face_use_case import (
     RegisterFacesUseCase,
     ListFacesUseCase,
     GetFaceUseCase,
     DeleteFaceUseCase,
+    MatchFaceUseCase,
 )
 
-from .vision_use_case import VisionUseCase
-from .directedness_use_case import DirectednessUseCase
-
 __all__ = [
-    "GenerateTitleUseCase",
     "ResponseTextUseCase",
     "ResponseSpeechUseCase",
     "ListConversationsUseCase",
@@ -41,10 +43,13 @@ __all__ = [
     "ListFilesUseCase",
     "DeleteFileUseCase",
     "IngestFileUseCase",
+    "SavePhotoUseCase",
+    "ListPhotosUseCase",
+    "GetPhotoUseCase",
+    "DeletePhotoUseCase",
     "RegisterFacesUseCase",
     "ListFacesUseCase",
     "GetFaceUseCase",
     "DeleteFaceUseCase",
-    "VisionUseCase",
-    "DirectednessUseCase",
+    "MatchFaceUseCase",
 ]

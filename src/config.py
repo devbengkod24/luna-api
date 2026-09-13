@@ -1,10 +1,17 @@
 """Application configuration."""
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# pydantic-settings JSON-decodes env values for complex types (list, dict)
+# *before* any `mode="before"` validator runs, so a plain comma-separated
+# `FOO=a,b` raises SettingsError instead of reaching our parser. NoDecode hands
+# the raw string over untouched and lets the validators below split it.
+CsvList = Annotated[list[str], NoDecode]
 
 
 class Settings(BaseSettings):
@@ -23,6 +30,14 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", alias="ENVIRONMENT")
     debug: bool = Field(default=True, alias="DEBUG")
     api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
+    # Root log level. Without an explicit logging config the root logger has no
+    # handler, so every logger.info() in src/ is silently dropped (uvicorn only
+    # configures its own `uvicorn.*` loggers). See configure_logging() in
+    # drivers/main.py. "DEBUG" | "INFO" | "WARNING" | "ERROR".
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    # IANA zone used for user-facing timestamps (conversation titles). Containers
+    # run on UTC, so without this a title would read 7 hours behind the kiosk.
+    app_timezone: str = Field(default="Asia/Jakarta", alias="APP_TIMEZONE")
 
     # Database
     postgres_host: str
@@ -95,23 +110,49 @@ class Settings(BaseSettings):
 
     gpu_device: int = Field(default=-1, alias="GPU_DEVICE")  # -1 for CPU, 0+ for GPU
 
-    # Face Recognition (InsightFace)
+    # Face Recognition (OpenCV: YuNet detection + SFace embedding)
     enable_face_recognition: bool = Field(default=True, alias="ENABLE_FACE_RECOGNITION")
-    face_recognition_model: str = Field(
-        default="buffalo_sc", alias="FACE_RECOGNITION_MODEL"
-    )
-    face_recognition_ctx_id: int = Field(
-        default=-1, alias="FACE_RECOGNITION_CTX_ID"
-    )  # -1 CPU, 0+ GPU
+    # The longest side a photo is scaled to before detection. YuNet is trained
+    # around a fixed input scale, and handing it a 3000 px phone portrait was
+    # measured at 23 ms against 6 ms here — and it found fewer faces, not more.
     face_detection_size: int = Field(
         default=320, alias="FACE_DETECTION_SIZE"
-    )  # Detection size (320 faster, 640 more accurate)
+    )  # 320 faster, 640 more accurate
     face_similarity_threshold: float = Field(
         default=0.5, alias="FACE_SIMILARITY_THRESHOLD"
     )  # Cosine similarity threshold (0.4-0.6 recommended)
 
+    # Width of the face vectors in Qdrant. 512 = InsightFace ArcFace, which is
+    # what the existing index was seeded with; 128 = SFace, which luna-edge now
+    # computes. A collection is created at one width and rejects any other, so
+    # changing this requires recreating the collection AND re-seeding every face
+    # from the same model that will later query it.
+    # SFace, 128. Must equal what the kiosk sends: the edge embeds with the
+    # same model, and a vector of the wrong length is not a poor match but an
+    # impossible comparison. Changing it means recreating the collection and
+    # re-seeding, because vectors of two sizes cannot share an index.
+    face_embedding_dim: int = Field(default=128, alias="FACE_EMBEDDING_DIM")
+    sface_model_path: str = Field(
+        default="storage/models/face_recognition_sface_2021dec.onnx",
+        alias="SFACE_MODEL_PATH",
+    )
+    yunet_model_path: str = Field(
+        default="storage/models/face_detection_yunet_2023mar.onnx",
+        alias="YUNET_MODEL_PATH",
+    )
+    # YuNet's own confidence gate, and the NMS overlap above which two boxes
+    # are judged to be the same face. Enrolment photos are posed and well lit,
+    # so the default is deliberately strict: a second, spurious face in the
+    # frame is worse here than a missed one, because it enrols a stranger
+    # under somebody else's name.
+    face_detection_threshold: float = Field(default=0.6, alias="FACE_DETECTION_THRESHOLD")
+    face_detection_nms: float = Field(default=0.3, alias="FACE_DETECTION_NMS")
+
     face_max_batch_size: int = 100  # Max faces per request
     face_max_image_size: int = 10 * 1024 * 1024  # 10MB
+    # A composed photobooth frame is a few hundred KB. The ceiling is for a
+    # client that sends something else entirely, not for a large photo.
+    photo_max_image_size: int = 10 * 1024 * 1024  # 10MB
 
     persist_dir: str = "storage/index"
     rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
@@ -123,6 +164,13 @@ class Settings(BaseSettings):
     rag_chunk_overlap: int = Field(default=50, alias="RAG_CHUNK_OVERLAP")
     # Number of chunks the rag_search tool retrieves from the Udinus KB.
     rag_top_k: int = Field(default=3, alias="RAG_TOP_K")
+    # Register the `rag_search` tool at all. Set false while the Qdrant KB is
+    # empty: rag_search then always returns "nothing found", which costs a full
+    # extra LLM round-trip before the model falls back to search_web (measured
+    # ~1.6s per campus question). With it off, the tool policy switches to a
+    # web-first variant — see prompts/tool-policy-*.txt. Flip back to true after
+    # seeding (`python -m src.seeder rag`).
+    enable_rag_tool: bool = Field(default=True, alias="ENABLE_RAG_TOOL")
 
     # Chat
     chat_max_prompt_length: int = 10000
@@ -155,63 +203,21 @@ class Settings(BaseSettings):
     # general web. Restricting makes campus-current-info come from official
     # sources but BREAKS general queries (news/public figures) — leave empty
     # unless web is used ONLY for campus.
-    exa_include_domains: list[str] = Field(
+    exa_include_domains: CsvList = Field(
         default_factory=list, alias="EXA_INCLUDE_DOMAINS"
     )
-
-    # Emotion Detection
-    enable_emotion_detection: bool = Field(
-        default=True, alias="ENABLE_EMOTION_DETECTION"
-    )
-    emotion_provider: str = Field(
-        default="emofer", alias="EMOTION_PROVIDER"
-    )  # "huggingface" or "emofer"
-    emotion_model: str = Field(
-        default="dima806/facial_emotions_image_detection", alias="EMOTION_MODEL"
-    )
-    # Emofer ONNX model paths (used when EMOTION_PROVIDER=emofer)
-    emofer_vad_model_path: str = Field(
-        default="storage/models/vad_multitask.onnx", alias="EMOFER_VAD_MODEL_PATH"
-    )
-    emofer_emotic_model_path: str = Field(
-        default="storage/models/emotic.onnx", alias="EMOFER_EMOTIC_MODEL_PATH"
+    # Domains the `scope="campus"` branch of search_web is pinned to. Measured
+    # motivation: when the model rewrites a campus query into English, an
+    # unpinned Exa search returns LinkedIn profiles (including other
+    # universities' rectors) instead of dinus.ac.id. Pinning makes the campus
+    # branch deterministic; `scope="general"` stays unfiltered so news/public-
+    # figure questions still work. Matches subdomains (warta./publikasi./repo.).
+    exa_campus_domains: CsvList = Field(
+        default_factory=lambda: ["dinus.ac.id"], alias="EXA_CAMPUS_DOMAINS"
     )
 
-    # Vision / Tracker (ByteTrack)
-    tracker_max_age: int = Field(default=30, alias="TRACKER_MAX_AGE")
-    tracker_min_hits: int = Field(default=3, alias="TRACKER_MIN_HITS")
-    tracker_min_score: float = Field(default=0.4, alias="TRACKER_MIN_SCORE")
-
-    # Vision / Recognition pipeline
-    vision_emotion_interval: int = Field(default=5, alias="VISION_EMOTION_INTERVAL")
-    vision_recognition_retry_interval: float = Field(
-        default=2.0, alias="VISION_RECOGNITION_RETRY_INTERVAL"
-    )
-    vision_max_recognition_attempts: int = Field(
-        default=5, alias="VISION_MAX_RECOGNITION_ATTEMPTS"
-    )
-
-    # Vision / WebSocket optimizations
-    vision_target_latency_ms: float = Field(
-        default=150.0, alias="VISION_TARGET_LATENCY_MS"
-    )
-    vision_latency_window: int = Field(default=10, alias="VISION_LATENCY_WINDOW")
-    vision_throttle_min_fps: int = Field(default=5, alias="VISION_THROTTLE_MIN_FPS")
-    vision_throttle_max_fps: int = Field(default=30, alias="VISION_THROTTLE_MAX_FPS")
-    vision_throttle_emit_interval: float = Field(
-        default=2.0, alias="VISION_THROTTLE_EMIT_INTERVAL"
-    )
-
-    # Speech-to-Text
+    # Speech-to-Text (Faster Whisper)
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
-    # "whisper" (local faster-whisper), "deepgram" (cloud REST, local Silero VAD
-    # still owns turn detection), or "deepgram-stream" (cloud WebSocket —
-    # Deepgram owns endpointing too, so local VAD does NOT run).
-    # Factory in dependencies.py auto-falls back to whisper if deepgram is
-    # misconfigured (missing key / SDK not installed).
-    stt_provider: str = Field(default="whisper", alias="STT_PROVIDER")
-
-    # Faster Whisper (STT_PROVIDER=whisper)
     whisper_model: str = Field(default="small", alias="WHISPER_MODEL")
     whisper_language: str = Field(default="id", alias="WHISPER_LANGUAGE")
     whisper_beam_size: int = Field(default=5, alias="WHISPER_BEAM_SIZE")
@@ -221,131 +227,18 @@ class Settings(BaseSettings):
     # via `whisper_beam_size`.
     whisper_voice_beam_size: int = Field(default=5, alias="WHISPER_VOICE_BEAM_SIZE")
 
-    # Deepgram STT (cloud REST, STT_PROVIDER=deepgram)
-    deepgram_api_key: str | None = Field(default=None, alias="DEEPGRAM_API_KEY")
-    # nova-3 is the flagship and has supported Indonesian since Jan 2026. Older
-    # docs/blog posts predate that — check the live language table, not memory,
-    # before assuming a language is nova-2-only.
-    deepgram_model: str = Field(default="nova-3", alias="DEEPGRAM_MODEL")
-    deepgram_language: str = Field(default="id", alias="DEEPGRAM_LANGUAGE")
-    # Punctuation + number/date formatting. Costs nothing extra and makes the
-    # transcript read better in the LLM prompt and the chat transcript.
-    deepgram_smart_format: bool = Field(default=True, alias="DEEPGRAM_SMART_FORMAT")
-    # Hard ceiling per request. The live voice path is latency-critical: a hung
-    # Deepgram call blocks the turn, so fail fast rather than let the user wait.
-    deepgram_timeout_seconds: int = Field(default=15, alias="DEEPGRAM_TIMEOUT_SECONDS")
-
-    # Deepgram streaming (STT_PROVIDER=deepgram-stream). Local VAD is bypassed
-    # entirely on this path — these two settings replace VOICE_SPEECH_END_FRAMES.
-    # Silence (ms) before Deepgram's audio VAD emits speech_final. Its own docs
-    # warn background noise can suppress this — hence the utterance_end backstop.
-    # Deepgram's default is 10 ms, which is far too twitchy for a kiosk.
-    deepgram_endpointing_ms: int = Field(default=350, alias="DEEPGRAM_ENDPOINTING_MS")
-    # Word-gap (ms) before UtteranceEnd fires. Transcript-based, so it ignores
-    # non-speech noise. Minimum useful value is ~1000.
-    deepgram_utterance_end_ms: int = Field(
-        default=1000, alias="DEEPGRAM_UTTERANCE_END_MS"
-    )
-    # nova-3 keyterm prompting — bias toward campus vocabulary that generic
-    # models mangle (lecturer names, program names, "Udinus"). Comma-separated.
-    deepgram_keyterm: str = Field(default="", alias="DEEPGRAM_KEYTERM")
-    # With no local VAD, TTS leaking back through the mic makes Deepgram report
-    # speech while Luna is talking, and she cancels her own reply. Browser echo
-    # cancellation does not survive a kiosk speaker at conversational volume, so
-    # this defaults off: audio heard mid-reply is dropped rather than answered.
-    # Set true only where the mic genuinely cannot hear the speaker (headset).
-    deepgram_stream_barge_in: bool = Field(
-        default=False, alias="DEEPGRAM_STREAM_BARGE_IN"
-    )
-
-    @property
-    def deepgram_keyterm_list(self) -> list[str]:
-        """Keyterms parsed from the comma-separated env."""
-        return [k.strip() for k in (self.deepgram_keyterm or "").split(",") if k.strip()]
-
-    # Voice WebSocket / VAD
+    # Turn WebSocket (/turn/stream)
     enable_voice_ws: bool = Field(default=True, alias="ENABLE_VOICE_WS")
-    # "silero" (neural, robust in noise) or "webrtc" (energy-based fallback).
-    # Factory in dependencies.py auto-falls back to webrtc if silero load fails.
-    vad_provider: str = Field(default="silero", alias="VAD_PROVIDER")
-    silero_vad_threshold: float = Field(default=0.5, alias="SILERO_VAD_THRESHOLD")
-    voice_vad_aggressiveness: int = Field(default=2, alias="VOICE_VAD_AGGRESSIVENESS")
-    voice_vad_sample_rate: int = Field(default=16000, alias="VOICE_VAD_SAMPLE_RATE")
-    voice_vad_frame_ms: int = Field(default=30, alias="VOICE_VAD_FRAME_MS")
-    voice_speech_start_frames: int = Field(
-        default=3, alias="VOICE_SPEECH_START_FRAMES"
-    )  # consecutive speech frames to enter SPEAKING (~90ms)
-    voice_barge_in_start_frames: int = Field(
-        default=10, alias="VOICE_BARGE_IN_START_FRAMES"
-    )  # consecutive speech frames to interrupt Luna mid-reply (~300ms).
-    # Deliberately far stricter than voice_speech_start_frames: while she is
-    # talking the mic also carries whatever leaks past the browser's echo
-    # cancellation, plus room noise. The ~90ms that is fine for starting a turn
-    # in a quiet room would cut her off constantly in a crowd. Raise this if the
-    # kiosk interrupts itself; lower it if barge-in feels sluggish.
-    voice_speech_end_frames: int = Field(
-        default=20, alias="VOICE_SPEECH_END_FRAMES"
-    )  # consecutive silence frames to end utterance (~600ms). Lower = snappier
-    # turn-taking but risks cutting off hesitant speakers; raise toward 25 (~750ms)
-    # if the kiosk audience pauses mid-sentence a lot.
-    voice_prebuffer_frames: int = Field(
-        default=7, alias="VOICE_PREBUFFER_FRAMES"
-    )  # frames retained before speech_start (~210ms)
+    # PCM-16 mono sample rate the kiosk streams. A kiosk may override it per
+    # connection with `?sample_rate=`; this is what an older client that sends
+    # no parameter is assumed to be using.
+    voice_sample_rate: int = Field(default=16000, alias="VOICE_SAMPLE_RATE")
+    # Ceiling on one turn's audio. The kiosk decides when a turn ends — this is
+    # the guard for a kiosk that crashes mid-turn and never sends `turn_end`,
+    # so the buffer cannot grow without bound.
     voice_max_utterance_seconds: float = Field(
         default=30.0, alias="VOICE_MAX_UTTERANCE_SECONDS"
     )
-
-    # Device-Directed Speech Detection (Active Speaker Detection + facing fusion)
-    # When enabled, a finished VAD utterance is only committed to STT/LLM/TTS if
-    # the candidate face was both facing the kiosk AND its lip motion correlated
-    # with the audio (LR-ASD). Fail-open: if ASD can't load or no face is tracked,
-    # the utterance is treated as directed so the system never goes deaf.
-    enable_asd: bool = Field(default=False, alias="ENABLE_ASD")
-    # ONNX runtime (3 sessions: audio/visual frontends + AV backend). Models are
-    # the deeptalk re-export of LR-ASD MIT — see storage/models/asd/README.md.
-    asd_audio_model_path: str = Field(
-        default="storage/models/asd/audio_frontend.onnx",
-        alias="ASD_AUDIO_MODEL_PATH",
-    )
-    asd_visual_model_path: str = Field(
-        default="storage/models/asd/visual_frontend.onnx",
-        alias="ASD_VISUAL_MODEL_PATH",
-    )
-    asd_av_model_path: str = Field(
-        default="storage/models/asd/av_backend.onnx",
-        alias="ASD_AV_MODEL_PATH",
-    )
-    # ONNX runtime intra-op threads. Bench: 2 is the sweet spot on typical
-    # 2-core kiosks (~2× faster than PyTorch); 1 erodes the win, >2 hurts on
-    # small models. ASD runs in short bursts at SPEECH_END so claiming threads
-    # is fine — LLM hasn't started yet.
-    asd_num_threads: int = Field(default=2, alias="ASD_NUM_THREADS")
-    # Per-frame speaking probability gate (sigmoid of av_backend logit, 0..1).
-    # The ONNX head emits a single class logit (not the 2-class softmax of the
-    # original PyTorch path), so this threshold runs higher than the old 0.4 —
-    # 0.5 is a sane default; tune on real speaking input.
-    asd_score_threshold: float = Field(default=0.5, alias="ASD_SCORE_THRESHOLD")
-    # Fraction of the utterance's frames that must clear asd_score_threshold for
-    # the candidate to count as the active speaker.
-    asd_presence_ratio: float = Field(default=0.35, alias="ASD_PRESENCE_RATIO")
-    # Nominal video fps used to scale the LR-ASD MFCC window when the real crop
-    # fps can't be measured (winlen=0.025*25/fps, winstep=0.010*25/fps). The
-    # session router measures the actual delivered fps per utterance; this is the
-    # fallback. LR-ASD is calibrated to 25 fps — see asd_service.py.
-    asd_nominal_fps: float = Field(default=25.0, alias="ASD_NOMINAL_FPS")
-    # Mean facing score (FE MediaPipe metadata, 0..1) required over the utterance.
-    # The FE score is "fraction of margin left to the frontal-cone boundary along
-    # the worst axis" (min of the yaw/pitch/proximity ramps, pitch ramp peaked at
-    # the user's observed neutral pose). So 0.35 means "stayed within the inner
-    # 65% of the cone, on average". The mean spans the whole utterance window —
-    # including the ~600 ms of trailing silence the VAD needs — so heads that
-    # relax at the end drag it down; don't set this near 1.
-    #
-    # PROVISIONAL. Calibrate from the `facing=` field of the `directedness:` INFO
-    # log on the real kiosk before trusting it. Was 0.5 against an older score
-    # that multiplied the ramps and peaked at the cone's geometric centre, which
-    # rejected ~85% of the poses the FE pre-gate accepts.
-    facing_threshold: float = Field(default=0.35, alias="FACING_THRESHOLD")
 
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")
@@ -380,12 +273,12 @@ class Settings(BaseSettings):
     frame_timeout_seconds: float = 5.0
 
     # CORS
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")
+    cors_origins: CsvList = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")
 
     # Request / streaming
     request_id_header: str = Field(default="X-Request-ID", alias="REQUEST_ID_HEADER")
 
-    @field_validator("exa_include_domains", mode="before")
+    @field_validator("exa_include_domains", "exa_campus_domains", mode="before")
     @classmethod
     def _parse_exa_include_domains(cls, v):
         if v is None or v == "":

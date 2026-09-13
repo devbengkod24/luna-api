@@ -2,23 +2,18 @@
 
 All long-lived adapter instances are stored on `app.state` (configured by the
 lifespan in `main.py`). Per-request dependency factories below resolve them via
-the incoming `Request` (HTTP) or `WebSocket`.
+the incoming `Request`.
 """
 
 import logging
 from typing import AsyncGenerator
 
-from fastapi import Depends, Request, WebSocket
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters import (
-    ActiveSpeakerService,
     CartesiaTTSService,
     ChatterboxSTTSService,
-    DeepgramSTTService,
-    DeepgramStreamingSTTService,
-    EmoferService,
-    EmotionDetectionService,
     F5TTSIndonesianService,
     FaceRecognitionService,
     FaceStore,
@@ -26,7 +21,6 @@ from src.adapters import (
     LlamaIndexRAGService,
     MMSTTSService,
     MinIOStorageService,
-    TrackerService,
     WhisperSTTService,
 )
 from src.adapters.identifiers import StdUuidGenerator
@@ -37,32 +31,31 @@ from src.adapters.persistence import (
     MessageRepository,
 )
 from src.adapters.prompts import FilePromptRepository
-from src.adapters.vad import SileroVadService, WebRtcVadService
 from src.config import settings
 from src.ports.identifiers import IUuidGenerator
 from src.ports.prompts import IPromptRepository
-from src.ports.services import ISTTService
-from src.ports.streaming_stt import IStreamingSTTService
-from src.ports.vad import IVadService
 from src.shared.exceptions import ServiceUnavailableException
 from src.use_cases import (
     DeleteConversationUseCase,
     DeleteFaceUseCase,
     DeleteFileUseCase,
     DeleteMessageUseCase,
-    GenerateTitleUseCase,
+    DeletePhotoUseCase,
     GetFaceUseCase,
+    GetPhotoUseCase,
     IngestFileUseCase,
     ListConversationMessagesUseCase,
     ListConversationsUseCase,
     ListFacesUseCase,
     ListFilesUseCase,
+    ListPhotosUseCase,
+    MatchFaceUseCase,
     RegisterFacesUseCase,
     ResponseSpeechUseCase,
     ResponseTextUseCase,
+    SavePhotoUseCase,
     UpdateConversationUseCase,
     UploadFileUseCase,
-    VisionUseCase,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,20 +67,13 @@ class AppContainer:
     db_connection: DatabaseConnection | None = None
     rag_service: LlamaIndexRAGService | None = None
     storage_service: MinIOStorageService | None = None
-    stt_service: ISTTService | None = None
-    # Set only when STT_PROVIDER=deepgram-stream. When present the session WS
-    # skips the VAD segmenter entirely and lets Deepgram drive turn boundaries.
-    streaming_stt_service: IStreamingSTTService | None = None
+    stt_service: WhisperSTTService | None = None
     tts_service: object | None = None
     agent_service: LangchainAgentService | None = None
     face_service: FaceStore | None = None
     face_recognition: FaceRecognitionService | None = None
-    emotion_service: EmotionDetectionService | EmoferService | None = None
-    tracker_service: TrackerService | None = None
-    asd_service: ActiveSpeakerService | None = None
     prompt_repository: IPromptRepository | None = None
     uuid_generator: IUuidGenerator | None = None
-    vad_service: IVadService | None = None
 
 
 def initialize_container() -> AppContainer:
@@ -98,18 +84,11 @@ def initialize_container() -> AppContainer:
         container.rag_service = LlamaIndexRAGService()
         container.storage_service = _build_storage()
         container.stt_service, container.tts_service = _build_speech()
-        container.streaming_stt_service = _build_streaming_stt()
         container.agent_service = LangchainAgentService(rag_service=container.rag_service)
         container.face_service, container.face_recognition = _build_face()
-        (
-            container.emotion_service,
-            container.tracker_service,
-            container.asd_service,
-        ) = _build_vision()
         container.prompt_repository = FilePromptRepository()
         _warm_prompt_cache(container.prompt_repository)
         container.uuid_generator = StdUuidGenerator()
-        container.vad_service = _build_vad()
         return container
     except Exception as e:
         logger.critical("Error initializing dependencies: %s", e, exc_info=True)
@@ -126,68 +105,15 @@ def _build_storage() -> MinIOStorageService | None:
         return None
 
 
-def _build_streaming_stt() -> IStreamingSTTService | None:
-    """Build the streaming STT adapter, or None if this provider isn't selected.
-
-    Returning None is the signal to the session WS that it should keep using the
-    local VAD segmenter, so a misconfigured cloud stream degrades to the working
-    local path rather than to silence.
-    """
-    if not settings.enable_stt:
-        return None
-    if (settings.stt_provider or "").strip().lower() not in _STREAMING_PROVIDERS:
-        return None
-    try:
-        if not settings.deepgram_api_key:
-            raise ValueError("DEEPGRAM_API_KEY is not set")
-        return DeepgramStreamingSTTService(api_key=settings.deepgram_api_key)
-    except Exception as e:
-        logger.warning(
-            "Could not initialize Deepgram streaming STT (%s) — session WS will "
-            "fall back to local VAD + batch STT.", e
-        )
-        return None
-
-
-_STREAMING_PROVIDERS = {"deepgram-stream", "deepgram_stream", "deepgram-streaming"}
-
-
-def _build_stt() -> ISTTService:
-    """Build the STT adapter for STT_PROVIDER, falling back to Whisper.
-
-    Deepgram is a network dependency, so a bad key or a missing SDK must not
-    leave the kiosk deaf — it degrades to the local Whisper model instead.
-
-    The streaming provider still builds a batch adapter here: it is what the
-    REST `/chat` speech endpoint uses, and what the session WS falls back to if
-    the stream can't be opened.
-    """
-    provider = (settings.stt_provider or "whisper").strip().lower()
-
-    if provider in _STREAMING_PROVIDERS or provider == "deepgram":
-        try:
-            if not settings.deepgram_api_key:
-                raise ValueError("DEEPGRAM_API_KEY is not set")
-            return DeepgramSTTService(api_key=settings.deepgram_api_key)
-        except Exception as e:
-            logger.warning(
-                "Could not initialize Deepgram STT (%s) — falling back to Whisper.", e
-            )
-    elif provider != "whisper":
-        logger.warning("Unknown STT_PROVIDER=%r — falling back to Whisper.", provider)
-
-    return WhisperSTTService(
-        model_size=settings.whisper_model,
-        device=settings.gpu_device,
-    )
-
-
-def _build_speech() -> tuple[ISTTService | None, object | None]:
-    stt: ISTTService | None = None
+def _build_speech() -> tuple[WhisperSTTService | None, object | None]:
+    stt: WhisperSTTService | None = None
     tts: object | None = None
 
     if settings.enable_stt:
-        stt = _build_stt()
+        stt = WhisperSTTService(
+            model_size=settings.whisper_model,
+            device=settings.gpu_device,
+        )
     else:
         logger.info("STT disabled (ENABLE_STT=False).")
 
@@ -252,88 +178,6 @@ def _warm_prompt_cache(prompts: IPromptRepository) -> None:
         logger.warning("Prompt warm-up failed (non-fatal): %s", e)
 
 
-def _build_vad() -> IVadService | None:
-    if not settings.enable_voice_ws:
-        logger.info("Voice WS disabled (ENABLE_VOICE_WS=False).")
-        return None
-
-    provider = (settings.vad_provider or "silero").lower().strip()
-
-    if provider == "silero":
-        try:
-            service = SileroVadService(
-                sample_rate=settings.voice_vad_sample_rate,
-                frame_duration_ms=settings.voice_vad_frame_ms,
-                threshold=settings.silero_vad_threshold,
-            )
-            logger.info("VAD service initialized: silero (neural)")
-            return service
-        except Exception as e:
-            logger.warning(
-                "Silero VAD load failed (%s) — falling back to WebRTC", e,
-            )
-
-    # Either provider == "webrtc" or Silero failed; use the energy-based VAD.
-    try:
-        service = WebRtcVadService(
-            aggressiveness=settings.voice_vad_aggressiveness,
-            sample_rate=settings.voice_vad_sample_rate,
-            frame_duration_ms=settings.voice_vad_frame_ms,
-        )
-        logger.info("VAD service initialized: webrtc (energy-based)")
-        return service
-    except Exception as e:
-        logger.warning("Could not initialize any VAD service: %s", e)
-        return None
-
-
-def _build_vision() -> tuple[
-    EmotionDetectionService | EmoferService | None,
-    TrackerService | None,
-    ActiveSpeakerService | None,
-]:
-    if not settings.enable_face_recognition:
-        logger.info("Vision services skipped (ENABLE_FACE_RECOGNITION=False).")
-        return None, None, None
-
-    tracker: TrackerService | None = None
-    try:
-        tracker = TrackerService()
-        logger.info("Tracker service initialized successfully")
-    except Exception as e:
-        logger.warning("Could not initialize tracker service: %s", e)
-
-    emotion: EmotionDetectionService | EmoferService | None = None
-    if settings.enable_emotion_detection:
-        try:
-            provider = (settings.emotion_provider or "huggingface").strip().lower()
-            if provider == "emofer":
-                emotion = EmoferService()
-                logger.info("Emotion detection service initialized (provider=emofer)")
-            else:
-                emotion = EmotionDetectionService()
-                logger.info("Emotion detection service initialized (provider=huggingface)")
-        except Exception as e:
-            logger.warning("Could not initialize emotion detection service: %s", e)
-    else:
-        logger.info("Emotion detection disabled (ENABLE_EMOTION_DETECTION=False).")
-
-    # Active Speaker Detection (device-directed fusion). Fail-soft: if the model
-    # or its optional deps are missing, leave it None and the directedness gate
-    # fails open (see DirectednessUseCase).
-    asd: ActiveSpeakerService | None = None
-    if settings.enable_asd:
-        try:
-            asd = ActiveSpeakerService()
-            logger.info("Active speaker detection service initialized (LR-ASD)")
-        except Exception as e:
-            logger.warning("Could not initialize active speaker detection service: %s", e)
-    else:
-        logger.info("Active speaker detection disabled (ENABLE_ASD=False).")
-
-    return emotion, tracker, asd
-
-
 def container_from(scope) -> AppContainer:
     """Resolve the application container from any object exposing `.app.state`."""
     container: AppContainer | None = getattr(scope.app.state, "container", None)
@@ -352,28 +196,6 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
 
 # --- Response use case factories ---
 
-def make_title_runner(container: AppContainer):
-    """Build a detached title-generation runner that uses its OWN db session.
-
-    The streaming pipeline persists messages on the request-scoped session; the
-    title side-task must not share it (concurrent use of a single AsyncSession,
-    and the task can outlive the request). Each call opens and commits its own
-    session via the connection's `get_session()`.
-    """
-    async def _run(conversation_id: str, user_input: str) -> None:
-        if container.db_connection is None or container.agent_service is None:
-            return
-        async for session in container.db_connection.get_session():
-            use_case = GenerateTitleUseCase(
-                conversation_repo=ConversationRepository(session),
-                agent_service=container.agent_service,
-                prompt_repo=container.prompt_repository,
-            )
-            await use_case.execute(conversation_id, user_input)
-
-    return _run
-
-
 async def get_response_text_use_case(
     request: Request,
     session: AsyncSession = Depends(get_db_session),
@@ -385,7 +207,6 @@ async def get_response_text_use_case(
         agent_service=container.agent_service,
         tts_service=container.tts_service,
         prompt_repo=container.prompt_repository,
-        title_runner=make_title_runner(container),
     )
 
 
@@ -401,7 +222,6 @@ async def get_response_speech_use_case(
         tts_service=container.tts_service,
         stt_service=container.stt_service,
         prompt_repo=container.prompt_repository,
-        title_runner=make_title_runner(container),
     )
 
 
@@ -448,7 +268,9 @@ async def get_upload_file_use_case(
         raise ServiceUnavailableException(
             "Storage (MinIO) is not available. Check MINIO_* env vars and ensure MinIO is running."
         )
-    return UploadFileUseCase(FileRepository(session), container.storage_service)
+    return UploadFileUseCase(
+        FileRepository(session), container.storage_service, container.uuid_generator
+    )
 
 
 async def get_list_files_use_case(
@@ -485,6 +307,35 @@ async def get_ingest_file_use_case(
     )
 
 
+# --- Photo use case factories ---
+#
+# No database session: a photo is only its object in storage.
+
+def _require_storage(request: Request):
+    container = container_from(request)
+    if not container.storage_service:
+        raise ServiceUnavailableException(
+            "Storage (MinIO) is not available. Check MINIO_* env vars and ensure MinIO is running."
+        )
+    return container
+
+
+def get_save_photo_use_case(request: Request) -> SavePhotoUseCase:
+    return SavePhotoUseCase(_require_storage(request).storage_service)
+
+
+def get_list_photos_use_case(request: Request) -> ListPhotosUseCase:
+    return ListPhotosUseCase(_require_storage(request).storage_service)
+
+
+def get_get_photo_use_case(request: Request) -> GetPhotoUseCase:
+    return GetPhotoUseCase(_require_storage(request).storage_service)
+
+
+def get_delete_photo_use_case(request: Request) -> DeletePhotoUseCase:
+    return DeletePhotoUseCase(_require_storage(request).storage_service)
+
+
 # --- Face use case factories ---
 
 def get_register_faces_use_case(request: Request) -> RegisterFacesUseCase:
@@ -496,6 +347,13 @@ def get_register_faces_use_case(request: Request) -> RegisterFacesUseCase:
         face_service=container.face_service,
         uuid_generator=container.uuid_generator,
     )
+
+
+def get_match_face_use_case(request: Request) -> MatchFaceUseCase:
+    container = container_from(request)
+    if not container.face_service:
+        raise ServiceUnavailableException("Face service is not available")
+    return MatchFaceUseCase(container.face_service)
 
 
 def get_list_faces_use_case(request: Request) -> ListFacesUseCase:
@@ -517,33 +375,3 @@ def get_delete_face_use_case(request: Request) -> DeleteFaceUseCase:
     if not container.face_service:
         raise ServiceUnavailableException("Face service is not available.")
     return DeleteFaceUseCase(container.face_service)
-
-
-# --- Vision use case factory ---
-
-def get_vision_use_case(websocket: WebSocket) -> VisionUseCase:
-    container = container_from(websocket)
-    if not container.face_recognition:
-        raise ServiceUnavailableException("Face recognition service is not available.")
-    return VisionUseCase(
-        image_decoder=container.face_recognition,
-        face_detector=container.face_recognition,
-        face_aligner=container.face_recognition,
-        face_embedder=container.face_recognition,
-        face_store=container.face_service,
-        tracker=container.tracker_service,
-        emotion_detection=container.emotion_service,
-        face_cropper=container.face_recognition,
-    )
-
-
-def make_directedness_use_case(container: AppContainer) -> "DirectednessUseCase":
-    """Build the device-directed fusion use case from the container.
-
-    `asd_service` may be None (ASD disabled or failed to load) — the use case
-    then fails open on the audio-visual dimension. Imported lazily to avoid a
-    heavier import at module load.
-    """
-    from src.use_cases import DirectednessUseCase
-
-    return DirectednessUseCase(active_speaker=container.asd_service)

@@ -6,17 +6,31 @@ import io
 import logging
 import os
 import threading
+import wave
 from collections.abc import Sequence
 
 import numpy as np
 import torch
-from scipy.io import wavfile
 
 from src.adapters.speech.tts_normalizer import normalize_for_tts
 from src.ports.services import ITTSService
 from src.shared.constants import Character
 
 logger = logging.getLogger(__name__)
+
+
+def _write_wav(buffer, sample_rate: int, audio_int16: np.ndarray) -> None:
+    """PCM-16 mono WAV into a buffer, with the standard library.
+
+    Replaces `scipy.io.wavfile.write`. scipy arrived free as an InsightFace
+    dependency and cost 40 MB the moment InsightFace left, which is a poor
+    trade for a RIFF header the `wave` module writes natively.
+    """
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(int(sample_rate))
+        handle.writeframes(np.asarray(audio_int16, dtype=np.int16).tobytes())
 
 
 def _character_slug(character: int) -> str:
@@ -94,7 +108,7 @@ class MMSTTSService(ITTSService):
 
         # Tulis ke buffer WAV
         buffer = io.BytesIO()
-        wavfile.write(buffer, sample_rate, audio_int16)
+        _write_wav(buffer, sample_rate, audio_int16)
         buffer.seek(0)
 
         # Encode ke base64
@@ -117,7 +131,9 @@ class MMSTTSService(ITTSService):
         text = normalize_for_tts(text)
 
         try:
-            logger.info(f"Synthesizing text: {text[:50]}...")
+            # DEBUG, not INFO: this is assistant reply content (see CLAUDE.md —
+            # conversation text must not land in INFO logs).
+            logger.debug("Synthesizing text (chars=%d)", len(text or ""))
 
             # Tokenize input text
             inputs = self.tokenizer(text, return_tensors="pt")
@@ -239,7 +255,7 @@ class ChatterboxSTTSService(ITTSService):
         audio_int16 = (audio * 32767.0).astype(np.int16)
 
         buffer = io.BytesIO()
-        wavfile.write(buffer, sample_rate, audio_int16)
+        _write_wav(buffer, sample_rate, audio_int16)
         buffer.seek(0)
         return base64.b64encode(buffer.read()).decode("utf-8")
 
@@ -250,7 +266,7 @@ class ChatterboxSTTSService(ITTSService):
         text = normalize_for_tts(text)
 
         try:
-            logger.info("Chatterbox synthesizing text: %s...", (text or "")[:50])
+            logger.debug("Chatterbox synthesizing text (chars=%d)", len(text or ""))
 
             # `generate` usually returns a torch Tensor waveform.
             prompt = self._character_prompt_path(character)
@@ -389,7 +405,7 @@ class F5TTSIndonesianService(ITTSService):
         audio_int16 = (audio * 32767.0).astype(np.int16)
 
         buffer = io.BytesIO()
-        wavfile.write(buffer, sample_rate, audio_int16)
+        _write_wav(buffer, sample_rate, audio_int16)
         buffer.seek(0)
         return base64.b64encode(buffer.read()).decode("utf-8")
 

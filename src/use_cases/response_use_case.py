@@ -3,7 +3,9 @@
 import asyncio
 import logging
 import re
-from typing import AsyncGenerator, Awaitable, Callable
+from datetime import datetime
+from typing import AsyncGenerator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from src.config import settings
 from src.domain.entities import (
@@ -31,46 +33,25 @@ from src.shared.constants import Character
 
 logger = logging.getLogger(__name__)
 
-# A title runner generates+persists a conversation title using its OWN db
-# session, detached from the request. Injected by the driver/DI layer so this
-# use case stays free of any session/infra knowledge.
-TitleRunner = Callable[[str, str], Awaitable[None]]
 
-# Hold references to fire-and-forget tasks so the event loop doesn't garbage-
-# collect them mid-flight; they self-remove on completion.
-_background_tasks: set[asyncio.Task] = set()
+def _new_conversation_title() -> str:
+    """Title for a fresh conversation: the local wall-clock time it started.
 
-
-def _spawn_background(coro: Awaitable[None]) -> None:
-    task = asyncio.ensure_future(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-
-class GenerateTitleUseCase:
-    """Generate and persist a title for a brand-new conversation, asynchronously."""
-
-    def __init__(
-        self,
-        conversation_repo: IConversationRepository,
-        agent_service: IAgentService,
-        prompt_repo: IPromptRepository,
-    ):
-        self.conversation_repo = conversation_repo
-        self.agent_service = agent_service
-        self.prompt_repo = prompt_repo
-
-    async def execute(self, conversation_id: str, user_input: str) -> None:
-        try:
-            title_prompt = self.prompt_repo.build_title_prompt(user_input)
-            title = await self.agent_service.generate_title(title_prompt)
-            if title and title.strip():
-                await self.conversation_repo.update_title(conversation_id, title.strip())
-        except Exception:
-            logger.exception(
-                "Failed to generate/update conversation title (conversation_id=%s)",
-                conversation_id,
-            )
+    Replaces an LLM-generated title, which cost an extra cloud round-trip per
+    conversation and could not be persisted anyway — it ran detached, in its own
+    transaction, while the conversation row was still uncommitted on the request
+    session, so its UPDATE matched zero rows ~86% of the time. A timestamp is
+    computed inline and committed with the request, so it always lands.
+    """
+    try:
+        now = datetime.now(ZoneInfo(settings.app_timezone))
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning(
+            "Unknown APP_TIMEZONE %r — falling back to UTC for conversation titles",
+            settings.app_timezone,
+        )
+        now = datetime.now(ZoneInfo("UTC"))
+    return now.strftime("%Y-%m-%d %H:%M:%S")
 
 
 class SynthesizeTtsUseCase:
@@ -122,16 +103,11 @@ class ResponseTextUseCase:
         agent_service: IAgentService,
         tts_service: ITTSService,
         prompt_repo: IPromptRepository,
-        title_runner: TitleRunner | None = None,
     ):
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
         self.agent_service = agent_service
         self.prompt_repo = prompt_repo
-        self.title_runner = title_runner
-        self.title_use_case = GenerateTitleUseCase(
-            conversation_repo, agent_service, prompt_repo
-        )
         self.tts_use_case = SynthesizeTtsUseCase(agent_service, tts_service, prompt_repo)
 
     async def execute(
@@ -147,8 +123,6 @@ class ResponseTextUseCase:
             message_repo=self.message_repo,
             agent_service=self.agent_service,
             tts_use_case=self.tts_use_case,
-            title_use_case=self.title_use_case,
-            title_runner=self.title_runner,
             prompt_repo=self.prompt_repo,
             conversation_id=conversation_id,
             user_input=user_input,
@@ -170,17 +144,12 @@ class ResponseSpeechUseCase:
         tts_service: ITTSService,
         stt_service: ISTTService,
         prompt_repo: IPromptRepository,
-        title_runner: TitleRunner | None = None,
     ):
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
         self.agent_service = agent_service
         self.stt_service = stt_service
         self.prompt_repo = prompt_repo
-        self.title_runner = title_runner
-        self.title_use_case = GenerateTitleUseCase(
-            conversation_repo, agent_service, prompt_repo
-        )
         self.tts_use_case = SynthesizeTtsUseCase(agent_service, tts_service, prompt_repo)
 
     async def execute(
@@ -200,8 +169,6 @@ class ResponseSpeechUseCase:
             message_repo=self.message_repo,
             agent_service=self.agent_service,
             tts_use_case=self.tts_use_case,
-            title_use_case=self.title_use_case,
-            title_runner=self.title_runner,
             prompt_repo=self.prompt_repo,
             conversation_id=conversation_id,
             user_input=transcript,
@@ -247,8 +214,6 @@ async def _stream_conversation(
     message_repo: IMessageRepository,
     agent_service: IAgentService,
     tts_use_case: SynthesizeTtsUseCase,
-    title_use_case: GenerateTitleUseCase,
-    title_runner: TitleRunner | None,
     prompt_repo: IPromptRepository,
     conversation_id: str | None,
     user_input: str,
@@ -272,13 +237,7 @@ async def _stream_conversation(
 
     if conversation_id is None:
         yield LogEvent(content="Membuat sesi baru...")
-        yield LogEvent(content="Sesi dibuat: Obrolan Baru")
-        # Title generation runs detached. The injected runner uses its OWN db
-        # session; sharing the request session races with the persistence below.
-        if title_runner is not None:
-            _spawn_background(title_runner(conversation.id, user_input))
-        else:
-            _spawn_background(title_use_case.execute(conversation.id, user_input))
+        yield LogEvent(content=f"Sesi dibuat: {conversation.title}")
 
     system_prompt = prompt_repo.get_system_prompt(character, context)
 
@@ -421,7 +380,7 @@ async def _resolve_conversation(
 ) -> Conversation | None:
     if conversation_id:
         return await repo.get_by_id(conversation_id)
-    return await repo.create(Conversation(title="Obrolan Baru"))
+    return await repo.create(Conversation(title=_new_conversation_title()))
 
 
 def _tool_event_to_message_body(event: ToolResultEvent):

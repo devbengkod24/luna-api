@@ -121,3 +121,23 @@ class DeleteFaceUseCase:
 
     async def execute(self, face_id: str) -> bool:
         return await self.face_service.delete(face_id)
+
+
+class MatchFaceUseCase:
+    """Match a pre-computed embedding against the registered faces.
+
+    Distinct from RegisterFacesUseCase's detect-then-embed path: the vector
+    arrives already computed, because the detector and the embedder now run on
+    the kiosk. Nothing here decodes an image — no picture of anyone reaches this
+    service on this route.
+    """
+
+    def __init__(self, face_service: IFaceService):
+        self.face_service = face_service
+
+    async def execute(
+        self, embedding: list[float], threshold: float = 0.6
+    ) -> tuple[FaceData, float] | None:
+        if not embedding:
+            return None
+        return await self.face_service.search_face(embedding=embedding, threshold=threshold)

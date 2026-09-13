@@ -1,5 +1,6 @@
 """Response REST routers — text and speech AI response endpoints."""
 import json
+from contextlib import aclosing
 from typing import AsyncIterator
 import logging
 import asyncio
@@ -34,25 +35,32 @@ SSE_HEADERS = {
 async def _sse_event_stream_with_idle_timeout(
     source: AsyncIterator[StreamEvent],
 ) -> AsyncIterator[str]:
-    """Wrap event generator with idle timeout to avoid hanging streams."""
-    try:
-        while True:
-            try:
-                async with asyncio.timeout(settings.sse_idle_timeout_seconds):
-                    event = await anext(source)
-            except StopAsyncIteration:
-                return
-            except TimeoutError:
-                yield (
-                    "data: "
-                    + json.dumps(stream_event_to_dict(ErrorEvent(content="Stream timeout")))
-                    + "\n\n"
-                )
-                return
-            yield f"data: {json.dumps(stream_event_to_dict(event))}\n\n"
-    except asyncio.CancelledError:
-        # client disconnected
-        return
+    """Wrap event generator with idle timeout to avoid hanging streams.
+
+    `aclosing` closes `source` deterministically on client disconnect. It spawns
+    the LLM producer and the TTS worker as tasks and cancels them only in its own
+    `finally`; without an explicit aclose() that cleanup rides on garbage
+    collection, and a reply nobody can hear keeps generating and synthesizing.
+    """
+    async with aclosing(source):
+        try:
+            while True:
+                try:
+                    async with asyncio.timeout(settings.sse_idle_timeout_seconds):
+                        event = await anext(source)
+                except StopAsyncIteration:
+                    return
+                except TimeoutError:
+                    yield (
+                        "data: "
+                        + json.dumps(stream_event_to_dict(ErrorEvent(content="Stream timeout")))
+                        + "\n\n"
+                    )
+                    return
+                yield f"data: {json.dumps(stream_event_to_dict(event))}\n\n"
+        except asyncio.CancelledError:
+            # client disconnected
+            return
 
 
 @router.post("/text")

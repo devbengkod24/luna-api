@@ -64,14 +64,14 @@ async def test_list_messages_filters_by_conversation_id():
     await repo.create(
         Message(
             conversation_id="conv-a",
-            character=Character.VENDRA,
+            character=Character.LUNA,
             body=UserMessage(content="hi"),
         )
     )
     await repo.create(
         Message(
             conversation_id="conv-b",
-            character=Character.VENDRA,
+            character=Character.LUNA,
             body=UserMessage(content="bye"),
         )
     )

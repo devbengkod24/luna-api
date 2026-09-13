@@ -12,14 +12,60 @@ from starlette.responses import Response
 
 from src.config import settings
 from src.drivers import dependencies
-from src.drivers.realtime.routers import session
+from src.drivers.realtime.routers import turn
 from src.drivers.rest.routers import conversation
 from src.drivers.rest.routers import face
 from src.drivers.rest.routers import file as file_router
+from src.drivers.rest.routers import photo
 from src.drivers.rest.routers import response
 from src.shared.exceptions import LunaException
 
 logger = logging.getLogger(__name__)
+
+# Libraries that are chatty at INFO/DEBUG and drown out application logs.
+# httpx is deliberately NOT here — one line per Ollama/Exa call is the cheapest
+# latency trace we have.
+_NOISY_LOGGERS = (
+    "httpcore",
+    "urllib3",
+    "watchfiles",
+    "filelock",
+    "fsspec",
+    "PIL",
+    "asyncio",
+    # Dumps the full Colang event object for every guardrail check — several
+    # hundred characters per request, and ~50 lines of action registration at
+    # startup. Nothing actionable at INFO.
+    "nemoguardrails",
+)
+
+
+def configure_logging() -> None:
+    """Attach a handler to the root logger so `logger.info()` in src/ is emitted.
+
+    Uvicorn configures only its own `uvicorn.*` loggers (with propagate=False),
+    leaving the root logger bare — so without this every INFO log in the app is
+    dropped by logging's last-resort handler, which passes WARNING and above
+    only. Called at import time, after uvicorn has loaded its own config, so the
+    two don't clobber each other and uvicorn's access logs are not duplicated.
+    """
+    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-8s %(name)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(level)
+
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
+
+
+configure_logging()
 
 
 @asynccontextmanager
@@ -108,7 +154,8 @@ app.include_router(response.router, prefix=settings.api_v1_prefix)
 app.include_router(conversation.router, prefix=settings.api_v1_prefix)
 app.include_router(file_router.router, prefix=settings.api_v1_prefix)
 app.include_router(face.router, prefix=settings.api_v1_prefix)
-app.include_router(session.router, prefix=settings.api_v1_prefix)
+app.include_router(photo.router, prefix=settings.api_v1_prefix)
+app.include_router(turn.router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/health", include_in_schema=False)

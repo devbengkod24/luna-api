@@ -10,6 +10,8 @@ from src.drivers import dependencies
 from src.drivers.rest.schemas import (
     FaceResponse,
     ListFacesResponse,
+    MatchFaceRequest,
+    MatchFaceResponse,
     RegisterFaceRequest,
     RegisterFacesResponse,
     SingleRegisterFaceResult,
@@ -18,6 +20,7 @@ from src.use_cases.face_use_case import (
     DeleteFaceUseCase,
     GetFaceUseCase,
     ListFacesUseCase,
+    MatchFaceUseCase,
     RegisterFacesUseCase,
 )
 
@@ -65,6 +68,28 @@ async def list_faces(
     return ListFacesResponse(
         items=[FaceResponse(id=f.id, name=f.name, nim=f.nim) for f in faces],
         next_cursor=next_cursor,
+    )
+
+
+@router.post("/match", response_model=MatchFaceResponse)
+async def match_face(
+    request: MatchFaceRequest,
+    use_case: MatchFaceUseCase = Depends(dependencies.get_match_face_use_case),
+):
+    """Match an embedding computed on a kiosk against the registered faces.
+
+    No match is a 200 with `matched: false`, not a 404: an unrecognised visitor
+    is the normal case, and the kiosk must not treat it as an error — it greets
+    them generically and carries on.
+    """
+    result = await use_case.execute(
+        embedding=request.embedding, threshold=request.threshold
+    )
+    if result is None:
+        return MatchFaceResponse(matched=False)
+    face, score = result
+    return MatchFaceResponse(
+        matched=True, id=face.id, name=face.name, nim=face.nim, score=score
     )
 
 

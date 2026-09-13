@@ -12,15 +12,12 @@ from src.ports.services import (
     ITTSService,
 )
 from src.ports.vision import (
-    IActiveSpeakerService,
-    IEmotionDetectionService,
     IFaceAligner,
     IFaceCropper,
     IFaceDetector,
     IFaceEmbedder,
     IFaceRecognitionService,
     IImageDecoder,
-    ITrackerService,
 )
 
 __all__ = [
@@ -39,9 +36,6 @@ __all__ = [
     "IFaceAligner",
     "IFaceCropper",
     "IImageDecoder",
-    "ITrackerService",
-    "IActiveSpeakerService",
-    "IEmotionDetectionService",
     "IPromptRepository",
     "IUuidGenerator",
 ]

@@ -1,9 +1,10 @@
 """In-memory fakes for ports used by unit tests."""
 
+from datetime import datetime, timezone
 from typing import AsyncGenerator, List, Optional, Tuple
 from uuid import uuid4
 
-from src.domain.entities import Conversation, File, Message
+from src.domain.entities import Conversation, File, Message, StoredObject
 from src.domain.entities.face import FaceData
 from src.domain.entities.vision import DetectedFace
 from src.domain.events import AssistantEvent, LogEvent, StreamEvent, TokenEvent
@@ -121,11 +122,15 @@ class FakeFileRepo(IFileRepository):
 class FakeStorageService(IStorageService):
     def __init__(self):
         self.uploaded: dict[str, bytes] = {}
+        self.modified: dict[str, datetime] = {}
         self.deleted: list[str] = []
 
     async def upload_file(self, file_content: bytes, filename: str, content_type: str) -> str:
-        path = f"storage://{filename}"
+        # The key as given, as MinIO returns it. A rewritten path here would let
+        # a use case pass that addresses objects by the wrong name.
+        path = filename
         self.uploaded[path] = file_content
+        self.modified[path] = datetime.now(timezone.utc)
         return path
 
     async def download_file(self, storage_path: str) -> bytes:
@@ -133,7 +138,24 @@ class FakeStorageService(IStorageService):
 
     async def delete_file(self, storage_path: str) -> bool:
         self.deleted.append(storage_path)
+        self.modified.pop(storage_path, None)
         return self.uploaded.pop(storage_path, None) is not None
+
+    async def list_files(self, prefix: str) -> list[StoredObject]:
+        return [
+            StoredObject(path=p, size_bytes=len(b), modified_at=self.modified[p])
+            for p, b in self.uploaded.items()
+            if p.startswith(prefix)
+        ]
+
+    async def stat_file(self, storage_path: str) -> StoredObject | None:
+        if storage_path not in self.uploaded:
+            return None
+        return StoredObject(
+            path=storage_path,
+            size_bytes=len(self.uploaded[storage_path]),
+            modified_at=self.modified[storage_path],
+        )
 
 
 class FakeRagService(IRAGService):

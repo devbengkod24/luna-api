@@ -110,30 +110,33 @@ services:
       WEB_SEARCH_COUNT: 3
       EXA_FETCH_TEXT: "false"             # false=highlights+bounded text (fast); true=full text
       # EXA_LIVECRAWL: fallback           # freshness vs latency (cached by default)
-      # EXA_INCLUDE_DOMAINS: dinus.ac.id  # restrict to official (breaks general web)
+      # EXA_INCLUDE_DOMAINS: dinus.ac.id  # pins scope="general" too — normally leave empty
       RAG_TOP_K: 3
 
-      # Face Recognition (InsightFace)
+      # Domains the scope="campus" branch of search_web is pinned to. Keeps
+      # campus answers on official sites even when the model rewrites the query
+      # into English (unpinned, that returns LinkedIn profiles of other
+      # universities' rectors). Subdomains match automatically.
+      EXA_CAMPUS_DOMAINS: dinus.ac.id
+
+      # OFF while the Qdrant KB is empty: rag_search would always return
+      # "nothing found", costing a full extra LLM round-trip (~1.6s) before the
+      # model falls back to search_web. This also swaps the prompt's tool policy
+      # to the web-first variant (src/prompts/tool-policy-web.txt).
+      # Set back to "true" after seeding: python -m src.seeder rag
+      ENABLE_RAG_TOOL: true
+
+      # Face Recognition (OpenCV: YuNet detection + SFace embedding)
       ENABLE_FACE_RECOGNITION: true
-      ENABLE_EMOTION_DETECTION: true
-      ENABLE_TTS: false
-      FACE_RECOGNITION_CTX_ID: -1 # -1 CPU, 0+ GPU
-      
-      # Device-Directed Speech Detection (LR-ASD active-speaker fusion).
-      # When false the directedness gate fails open on the audio-visual dimension
-      # and degrades to a facing-only check. Needs the ONNX models at
-      # storage/models/asd/ (audio_frontend / visual_frontend / av_backend).
-      ENABLE_ASD: false
-      # Tuning knobs — calibrate from the `directedness:` INFO log, not by guess.
-      # FACING_THRESHOLD is provisional; see src/config.py for what the score means.
-      FACING_THRESHOLD: 0.35
-      ASD_SCORE_THRESHOLD: 0.5
-      ASD_PRESENCE_RATIO: 0.35
+      # SFace, the same model the kiosk embeds with. Both halves must agree:
+      # 128 against a 512 index is not a weak match, it is no comparison at all.
+      FACE_EMBEDDING_DIM: 128
+      ENABLE_TTS: true
 
       TTS_PROVIDER: cartesia
       # Comma-separated for failover: keys are used in order, and the next one
       # takes over when Cartesia reports the current key out of credits.
-      CARTESIA_API_KEY: sk_car_rsMdvvtEFz4zvuvEmgqGdz
+      CARTESIA_API_KEY: sk_car_rsMdvvtEFz4zvuvEmgqGdz, sk_car_LBvVBZyEYFfexyjJWmEHmp, sk_car_yGEmU1nYfLTcrJfpHVuJa9, sk_car_hVT1eVfPjxfyRSNfuWyvRo, sk_car_qrgbsUjD3h2JzL4tLsGAg1, sk_car_g9Age19Tug61jW1u4Du7pD
       CARTESIA_VOICE_ID: b441c4fd-4910-4c55-ae56-f0291057e2cc
 
       # Speech / TTS

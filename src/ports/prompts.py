@@ -20,8 +20,3 @@ class IPromptRepository(ABC):
     def get_tts_system_prompt(self) -> str:
         """Return the system prompt used to preprocess text for TTS."""
         ...
-
-    @abstractmethod
-    def build_title_prompt(self, user_input: str) -> str:
-        """Return the prompt used to generate a conversation title."""
-        ...
