@@ -77,7 +77,7 @@ drivers ──▶ use_cases ──▶ ports ◀── adapters
 - `src/domain/entities/` — pure business entities. No framework/infra imports.
 - `src/ports/` — interfaces (`repositories.py`, `services.py`, `vision.py`). Contracts only.
 - `src/use_cases/` — orchestrates business flows. Talks to `ports` + `domain` only. **Must not import** `fastapi`, `sqlalchemy`, `qdrant_client`, `minio`, `langchain*`, `llama_index*`, `cv2`, `insightface`, etc.
-- `src/adapters/` — concrete implementations: `persistence/` (SQLAlchemy + repos), `rag/` (LlamaIndex + Qdrant), `agent/` (LangChain + Ollama), `speech/` (Whisper, MMS, Chatterbox, F5-TTS), `storage/` (MinIO), `vision/` (InsightFace enrolment + the Qdrant face index).
+- `src/adapters/` — concrete implementations: `persistence/` (SQLAlchemy + repos), `rag/` (LlamaIndex + Qdrant), `agent/` (LangChain + Ollama), `speech/` (Whisper, Deepgram, MMS, Chatterbox, F5-TTS, Cartesia), `storage/` (MinIO), `vision/` (InsightFace enrolment + the Qdrant face index).
 - `src/drivers/` — entry points: `rest/routers/`, `realtime/routers/` (WebSocket), `main.py` (app + lifespan), `dependencies.py` (DI wiring).
 - `src/seeder/` — standalone CLI (`python -m src.seeder ...`).
 
@@ -113,7 +113,25 @@ Don't add new module-level globals unless there's no other option — prefer `ap
 
 ### TTS providers (`_init_speech` in `dependencies.py`)
 
-`TTS_PROVIDER` selects the adapter: `mms` (default fallback), `chatterbox` / `chatterbox-id` / `chatterbox_indonesia`, or `f5` / `f5-tts` / `f5_tts` / `f5-indonesia` / `f5_indo`. STT is always Whisper (when `ENABLE_STT=true`).
+`TTS_PROVIDER` selects the adapter: `mms` (default fallback), `chatterbox` / `chatterbox-id` / `chatterbox_indonesia`, or `f5` / `f5-tts` / `f5_tts` / `f5-indonesia` / `f5_indo`.
+
+### STT providers (`_build_stt` in `dependencies.py`)
+
+`STT_PROVIDER` selects the adapter when `ENABLE_STT=true`: `whisper` (default,
+local faster-whisper) or `deepgram` (cloud, prerecorded `/v1/listen`). This is
+the branch that ships `deepgram`; `exp/edge` stays Whisper-only. A missing
+`DEEPGRAM_API_KEY` or SDK falls back to Whisper, so a bad cloud config never
+leaves the kiosk deaf.
+
+- **Batch, not streaming, is deliberate.** The kiosk owns endpointing and sends
+  one turn it already decided was for Luna. A Deepgram stream would duplicate
+  that, and it bills per second of audio *sent*.
+- **The SDK's prerecorded call has `encoding` but no `sample_rate`.** Raw PCM16
+  from `/turn/stream` is wrapped in a WAV header (`_pcm_to_wav`) with no encoding
+  declared, so Deepgram reads the rate from the container. Passing
+  `sample_rate=` to `transcribe_file` raises `TypeError`.
+- **Check the live language table, not a blog post.** A model/language mismatch
+  is accepted by the API and just returns bad text.
 
 ### The turn WebSocket (`src/drivers/realtime/routers/turn.py`)
 
@@ -126,7 +144,7 @@ endpointer, no barge-in detector and no view of the room. The kiosk decided the
 turn was addressed to Luna before the first byte arrived, and nothing here
 second-guesses it. Two consequences worth remembering:
 
-- **`vad_filter=True` in `stt_service.py` is not the removed VAD** and must stay
+- **`vad_filter=True` in Whisper's `stt_service.py` is not the removed VAD** and must stay
   on. It is Whisper's own bundled Silero, and it is the only thing standing
   between silence and a confident "Terima kasih." — measured at
   `no_speech_prob=0.000`.

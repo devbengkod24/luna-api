@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.adapters import (
     CartesiaTTSService,
     ChatterboxSTTSService,
+    DeepgramSTTService,
     F5TTSIndonesianService,
     FaceRecognitionService,
     FaceStore,
@@ -34,6 +35,7 @@ from src.adapters.prompts import FilePromptRepository
 from src.config import settings
 from src.ports.identifiers import IUuidGenerator
 from src.ports.prompts import IPromptRepository
+from src.ports.services import ISTTService
 from src.shared.exceptions import ServiceUnavailableException
 from src.use_cases import (
     DeleteConversationUseCase,
@@ -67,7 +69,7 @@ class AppContainer:
     db_connection: DatabaseConnection | None = None
     rag_service: LlamaIndexRAGService | None = None
     storage_service: MinIOStorageService | None = None
-    stt_service: WhisperSTTService | None = None
+    stt_service: ISTTService | None = None
     tts_service: object | None = None
     agent_service: LangchainAgentService | None = None
     face_service: FaceStore | None = None
@@ -105,15 +107,36 @@ def _build_storage() -> MinIOStorageService | None:
         return None
 
 
-def _build_speech() -> tuple[WhisperSTTService | None, object | None]:
-    stt: WhisperSTTService | None = None
+def _build_stt() -> ISTTService:
+    """Build the STT adapter for STT_PROVIDER, falling back to Whisper.
+
+    Deepgram is a network dependency, so a missing key or SDK must not leave
+    the kiosk deaf — it degrades to the local Whisper model instead.
+    """
+    provider = (settings.stt_provider or "whisper").strip().lower()
+
+    if provider == "deepgram":
+        try:
+            if not settings.deepgram_api_key:
+                raise ValueError("DEEPGRAM_API_KEY is not set")
+            return DeepgramSTTService(api_key=settings.deepgram_api_key)
+        except Exception as e:
+            logger.warning("Could not initialize Deepgram STT (%s) — falling back to Whisper.", e)
+    elif provider != "whisper":
+        logger.warning("Unknown STT_PROVIDER=%r — falling back to Whisper.", provider)
+
+    return WhisperSTTService(
+        model_size=settings.whisper_model,
+        device=settings.gpu_device,
+    )
+
+
+def _build_speech() -> tuple[ISTTService | None, object | None]:
+    stt: ISTTService | None = None
     tts: object | None = None
 
     if settings.enable_stt:
-        stt = WhisperSTTService(
-            model_size=settings.whisper_model,
-            device=settings.gpu_device,
-        )
+        stt = _build_stt()
     else:
         logger.info("STT disabled (ENABLE_STT=False).")
 

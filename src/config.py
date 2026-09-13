@@ -216,8 +216,14 @@ class Settings(BaseSettings):
         default_factory=lambda: ["dinus.ac.id"], alias="EXA_CAMPUS_DOMAINS"
     )
 
-    # Speech-to-Text (Faster Whisper)
+    # Speech-to-Text
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
+    # "whisper" (local faster-whisper) or "deepgram" (cloud, batch). Either way
+    # the kiosk owns endpointing and the whole turn is transcribed at turn_end.
+    # A misconfigured Deepgram falls back to Whisper in dependencies.py.
+    stt_provider: str = Field(default="whisper", alias="STT_PROVIDER")
+
+    # Faster Whisper (STT_PROVIDER=whisper, and the fallback)
     whisper_model: str = Field(default="small", alias="WHISPER_MODEL")
     whisper_language: str = Field(default="id", alias="WHISPER_LANGUAGE")
     whisper_beam_size: int = Field(default=5, alias="WHISPER_BEAM_SIZE")
@@ -226,6 +232,19 @@ class Settings(BaseSettings):
     # negligible accuracy loss. Chat/file uploads keep the higher-quality beam
     # via `whisper_beam_size`.
     whisper_voice_beam_size: int = Field(default=5, alias="WHISPER_VOICE_BEAM_SIZE")
+
+    # Deepgram STT (STT_PROVIDER=deepgram)
+    deepgram_api_key: str | None = Field(default=None, alias="DEEPGRAM_API_KEY")
+    # nova-3 has supported Indonesian since Jan 2026. Older docs predate that —
+    # check the live language table before assuming a language is nova-2-only.
+    deepgram_model: str = Field(default="nova-3", alias="DEEPGRAM_MODEL")
+    deepgram_language: str = Field(default="id", alias="DEEPGRAM_LANGUAGE")
+    # Punctuation + number/date formatting. Costs nothing extra and makes the
+    # transcript read better in the LLM prompt and the chat transcript.
+    deepgram_smart_format: bool = Field(default=True, alias="DEEPGRAM_SMART_FORMAT")
+    # A hung request blocks the turn, so fail fast rather than let the visitor
+    # wait for the kiosk's own reply watchdog.
+    deepgram_timeout_seconds: int = Field(default=15, alias="DEEPGRAM_TIMEOUT_SECONDS")
 
     # Turn WebSocket (/turn/stream)
     enable_voice_ws: bool = Field(default=True, alias="ENABLE_VOICE_WS")

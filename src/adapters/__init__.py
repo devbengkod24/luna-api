@@ -4,7 +4,6 @@ from .agent.agent_service import LangchainAgentService
 from .identifiers import StdUuidGenerator
 from .prompts import FilePromptRepository
 from .rag.rag_service import LlamaIndexRAGService
-from .speech.deepgram_streaming_stt import DeepgramStreamingSTTService
 from .speech.deepgram_stt_service import DeepgramSTTService
 from .speech.stt_service import WhisperSTTService
 from .speech.tts_service import (
@@ -22,7 +21,6 @@ __all__ = [
     "LlamaIndexRAGService",
     "WhisperSTTService",
     "DeepgramSTTService",
-    "DeepgramStreamingSTTService",
     "MMSTTSService",
     "ChatterboxSTTSService",
     "F5TTSIndonesianService",

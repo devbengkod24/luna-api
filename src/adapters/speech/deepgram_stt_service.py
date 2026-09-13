@@ -18,10 +18,10 @@ class DeepgramSTTService(ISTTService):
     stays available under STT_PROVIDER=whisper.
 
     Uses the REST (prerecorded) endpoint rather than the streaming WebSocket
-    because the caller already owns turn detection: the voice WS segmenter runs
-    VAD and the device-directedness gate, then hands over one complete utterance.
-    A streaming connection would duplicate that endpointing and would have to be
-    opened before the gate decides whether the utterance is even for Luna.
+    because the kiosk owns turn detection: `/turn/stream` receives one turn the
+    kiosk already decided was for Luna and transcribes it once, at `turn_end`.
+    A streaming connection would duplicate that endpointing, and bill for audio
+    the kiosk never meant to send.
     """
 
     def __init__(
