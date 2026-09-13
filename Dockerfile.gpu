@@ -19,19 +19,6 @@ RUN pip install --no-cache-dir -r requirements/base.txt
 
 RUN pip install --no-cache-dir -r requirements/gpu.txt
 
-# EmotiEffLib: --no-deps on purpose — it declares `opencv-python`, which would
-# shadow the `opencv-python-headless` installed above (same cv2 module, and the
-# non-headless build needs libGL that this image doesn't carry). Its remaining
-# requirements are already satisfied. See requirements/base.txt.
-RUN pip install --no-cache-dir --no-deps emotiefflib==1.1.1
-
-# Bake the ONNX weights into the image. The library otherwise downloads them
-# from GitHub into ~/.emotiefflib on first use — a network round-trip at kiosk
-# start-up, and lost on every container recreate since that path is not a volume.
-ARG EMOTIEFFLIB_MODEL=enet_b2_7
-RUN python -c "from emotiefflib.utils import get_model_path_onnx; \
-    print('cached:', get_model_path_onnx('${EMOTIEFFLIB_MODEL}'))"
-
 # Copy application code
 COPY . .
 

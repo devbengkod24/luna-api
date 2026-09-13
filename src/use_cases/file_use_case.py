@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.domain.entities.file import File
+from src.ports.identifiers import IUuidGenerator
 from src.ports.repositories import IFileRepository
 from src.ports.services import IStorageService, IRAGService
 from src.shared.constants import FileStatus
@@ -24,19 +25,43 @@ def _detect_content_type(filename: str) -> str:
     }.get(ext, "application/octet-stream")
 
 
+DOCUMENT_PREFIX = "documents/"
+
+
+def document_path(key_id: str, filename: str) -> str:
+    """Where one uploaded document lives in storage.
+
+    Unique per upload, not per name. The key used to be the filename alone, so
+    a second "biaya.pdf" overwrote the first one's bytes while both rows still
+    pointed at it, and deleting either took the other's content too. That was
+    easy to reach without trying: the seeder takes documents from one folder
+    per tag, and the same filename under two tags is ordinary.
+
+    The filename stays at the end so the object is still recognisable when
+    browsing the bucket. The database row, not this key, is what records it.
+    """
+    return f"{DOCUMENT_PREFIX}{key_id}/{filename}"
+
+
 class UploadFileUseCase:
     """Upload file to MinIO and record metadata in DB."""
 
-    def __init__(self, file_repo: IFileRepository, storage: IStorageService):
+    def __init__(
+        self,
+        file_repo: IFileRepository,
+        storage: IStorageService,
+        uuid_generator: IUuidGenerator,
+    ):
         self.file_repo = file_repo
         self.storage = storage
+        self.uuid_generator = uuid_generator
 
     async def execute(self, file_content: bytes, filename: str) -> File:
         content_type = _detect_content_type(filename)
 
         storage_path = await self.storage.upload_file(
             file_content=file_content,
-            filename=filename,
+            filename=document_path(self.uuid_generator.new_id(), filename),
             content_type=content_type,
         )
 
@@ -82,7 +107,23 @@ class DeleteFileUseCase:
         if not file:
             return False
 
-        await self.storage.delete_file(file.storage_path)
+        # New uploads never share a storage key. Rows written before keys were
+        # unique can — two documents uploaded under one name — and for those,
+        # deleting the object would empty the survivor too. The survivor's
+        # bytes are already the later upload's; keeping the object is the
+        # only thing left that can be saved.
+        sharing = [
+            other for other in await self.file_repo.list()
+            if other.id != file.id and other.storage_path == file.storage_path
+        ]
+        if sharing:
+            logger.warning(
+                "Kept storage object %s: %d other document(s) still point at it "
+                "(uploaded under the same name before storage keys were unique)",
+                file.storage_path, len(sharing),
+            )
+        else:
+            await self.storage.delete_file(file.storage_path)
         await self.rag_service.delete_by_file_id(file_id)
         return await self.file_repo.delete(file_id)
 

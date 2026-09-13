@@ -11,6 +11,7 @@ If a file with the same filename already exists, it is deleted first (re-index).
 import logging
 from pathlib import Path
 
+from src.adapters.identifiers import StdUuidGenerator
 from src.adapters.persistence.database import DatabaseConnection
 from src.adapters.persistence.repositories import FileRepository
 from src.config import settings
@@ -39,7 +40,7 @@ async def run(
     async with db.async_session_maker() as session:
         file_repo = FileRepository(session)
         list_uc = ListFilesUseCase(file_repo)
-        upload_uc = UploadFileUseCase(file_repo, storage)
+        upload_uc = UploadFileUseCase(file_repo, storage, StdUuidGenerator())
         delete_uc = DeleteFileUseCase(file_repo, storage, rag)
         ingest_uc = IngestFileUseCase(file_repo, storage, rag)
 

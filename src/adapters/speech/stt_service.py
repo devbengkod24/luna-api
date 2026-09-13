@@ -56,8 +56,8 @@ class WhisperSTTService(ISTTService):
         return " ".join(seg.text.strip() for seg in segments).strip()
 
     def _run_transcribe_array(self, audio: np.ndarray) -> str:
-        # vad_filter must stay ON even though the segmenter already gated this
-        # audio. Whisper hallucinates fluent text out of silence and room noise
+        # vad_filter must stay ON even though the kiosk's own VAD already gated
+        # this audio. Whisper hallucinates fluent text out of silence and room noise
         # — measured on this model: pure silence decodes to "Terima kasih." and
         # white noise to "selamat menikmati", both with no_speech_prob=0.000 and
         # avg_logprob=-0.13. Confidence-based filtering cannot catch that; the

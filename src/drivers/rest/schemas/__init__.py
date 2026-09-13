@@ -19,6 +19,8 @@ from .face_schema import (
     SingleRegisterFaceResult,
     FaceResponse,
     ListFacesResponse,
+    MatchFaceRequest,
+    MatchFaceResponse,
 )
 
 __all__ = [
@@ -36,4 +38,6 @@ __all__ = [
     "SingleRegisterFaceResult",
     "FaceResponse",
     "ListFacesResponse",
+    "MatchFaceRequest",
+    "MatchFaceResponse",
 ]

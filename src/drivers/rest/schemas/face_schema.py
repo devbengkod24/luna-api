@@ -100,3 +100,31 @@ class RegisterFacesResponse(BaseModel):
     success_count: int
     failed_count: int
     results: list[SingleRegisterFaceResult]
+
+
+class MatchFaceRequest(BaseModel):
+    """An embedding computed on the kiosk, to be matched against the store.
+
+    The edge computes the vector and the cloud owns the index: a new kiosk needs
+    no sync step, and no biometric template is replicated onto a box standing in
+    a public lobby. The embedding MUST come from the same ArcFace model faces
+    were registered with — a version drift here misses silently, it does not
+    error.
+    """
+
+    embedding: list[float] = Field(
+        ..., min_length=1, max_length=1024, description="Face embedding vector"
+    )
+    threshold: float = Field(
+        default=0.6, ge=0.0, le=1.0, description="Minimum cosine score to accept"
+    )
+
+
+class MatchFaceResponse(BaseModel):
+    """Never an error when nobody matches — an unknown visitor is a normal case."""
+
+    matched: bool
+    id: str | None = None
+    name: str | None = None
+    nim: str | None = None
+    score: float | None = None

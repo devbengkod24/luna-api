@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, ClassVar
 
-from src.domain.entities import Message, UserContext
+from src.domain.entities import Message, StoredObject, UserContext
 from src.domain.entities.face import FaceData
 from src.domain.events import StreamEvent
 
@@ -71,6 +71,20 @@ class IStorageService(ABC):
     @abstractmethod
     async def delete_file(self, storage_path: str) -> bool:
         """Delete file from storage."""
+        ...
+
+    @abstractmethod
+    async def list_files(self, prefix: str) -> list[StoredObject]:
+        """Every object whose path starts with `prefix`."""
+        ...
+
+    @abstractmethod
+    async def stat_file(self, storage_path: str) -> StoredObject | None:
+        """The object at `storage_path`, or None if there is none.
+
+        Separate from `download_file` because a missing object and a failing
+        backend must not look alike: one is a 404, the other a 500.
+        """
         ...
 
 

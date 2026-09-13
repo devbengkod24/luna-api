@@ -6,6 +6,7 @@ import logging
 from minio import Minio
 from minio.error import S3Error
 
+from src.domain.entities import StoredObject
 from src.ports.services import IStorageService
 from src.config import settings
 from src.shared.exceptions import InternalServerException
@@ -70,3 +71,42 @@ class MinIOStorageService(IStorageService):
             return True
         except S3Error:
             return False
+
+    async def list_files(self, prefix: str) -> list[StoredObject]:
+        def _list() -> list[StoredObject]:
+            return [
+                StoredObject(
+                    path=obj.object_name,
+                    size_bytes=obj.size or 0,
+                    modified_at=obj.last_modified,
+                )
+                for obj in self.client.list_objects(
+                    self.bucket_name, prefix=prefix, recursive=True
+                )
+                if not obj.is_dir
+            ]
+
+        try:
+            return await asyncio.to_thread(_list)
+        except S3Error as e:
+            logger.error("MinIO list failed for prefix %s: %s", prefix, e)
+            raise InternalServerException("File listing failed")
+
+    async def stat_file(self, storage_path: str) -> StoredObject | None:
+        try:
+            obj = await asyncio.to_thread(
+                self.client.stat_object, self.bucket_name, storage_path
+            )
+        except S3Error as e:
+            # Only "not there" is an answer. Anything else is the backend
+            # failing, and reporting that as a 404 would tell the dashboard a
+            # photo is gone when storage merely could not be reached.
+            if e.code in ("NoSuchKey", "NoSuchObject"):
+                return None
+            logger.error("MinIO stat failed for %s: %s", storage_path, e)
+            raise InternalServerException("File lookup failed")
+        return StoredObject(
+            path=obj.object_name,
+            size_bytes=obj.size or 0,
+            modified_at=obj.last_modified,
+        )

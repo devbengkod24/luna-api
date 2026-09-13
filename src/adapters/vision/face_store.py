@@ -33,6 +33,7 @@ class FaceStore(IFaceService):
             prefer_grpc=True,
         )
         self.collection_name = settings.faces_collection_name
+        self._warned_dim = False
 
     async def initialize(self) -> None:
         collections = await self.client.get_collections()
@@ -40,7 +41,9 @@ class FaceStore(IFaceService):
         if self.collection_name not in names:
             await self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=VectorParams(size=512, distance=Distance.COSINE),
+                vectors_config=VectorParams(
+                    size=settings.face_embedding_dim, distance=Distance.COSINE
+                ),
             )
 
     async def add_face(self, face: FaceData) -> str:
@@ -55,6 +58,28 @@ class FaceStore(IFaceService):
     async def search_face(
         self, embedding: list[float], threshold: float = 0.6
     ) -> tuple[FaceData, float] | None:
+        # A vector of the wrong width is a configuration mistake, not a failed
+        # lookup, and Qdrant answers it with an exception that used to surface as
+        # a 500 and a traceback on every single attempt. Catch it here: an
+        # unrecognised visitor is an ordinary outcome, so the caller gets "no
+        # match" — but say plainly what is wrong, because the alternative is a
+        # kiosk where recognition silently never works.
+        expected = settings.face_embedding_dim
+        if len(embedding) != expected:
+            # Once, not per query. The kiosk asks about once a second while a
+            # face is visible, and a warning repeated sixty times a minute stops
+            # being a warning and starts hiding the next real one.
+            if not self._warned_dim:
+                self._warned_dim = True
+                logger.warning(
+                    "Face vector is %d-dimensional but this index holds %d. "
+                    "Nothing will ever match. Whichever model enrols must also "
+                    "query: SFace emits 128, InsightFace ArcFace 512. Set "
+                    "FACE_EMBEDDING_DIM, recreate the collection, and re-seed.",
+                    len(embedding), expected,
+                )
+            return None
+
         response = await self.client.query_points(
             collection_name=self.collection_name,
             query=embedding,

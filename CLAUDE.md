@@ -2,7 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Luna Backend (FastAPI) — Linked Unified Neural Assistant backend with emotion detection, face recognition, RAG agent, STT, and TTS. Built on Clean Architecture.
+Luna Backend (FastAPI) — Linked Unified Neural Assistant backend with face
+enrolment, RAG agent, STT, and TTS. Built on Clean Architecture.
+
+**Perception is not here.** Cameras, tracking, emotion, voice activity,
+endpointing and active-speaker detection all run on the kiosk (luna-edge). This
+service never sees a video frame. A kiosk opens `/turn/stream`, ships the PCM of
+one turn it has already decided to send, and gets back transcript, tokens and
+audio. The face index is the one exception: it is cloud-side, so enrolment and
+matching stay here.
 
 ---
 
@@ -69,7 +77,7 @@ drivers ──▶ use_cases ──▶ ports ◀── adapters
 - `src/domain/entities/` — pure business entities. No framework/infra imports.
 - `src/ports/` — interfaces (`repositories.py`, `services.py`, `vision.py`). Contracts only.
 - `src/use_cases/` — orchestrates business flows. Talks to `ports` + `domain` only. **Must not import** `fastapi`, `sqlalchemy`, `qdrant_client`, `minio`, `langchain*`, `llama_index*`, `cv2`, `insightface`, etc.
-- `src/adapters/` — concrete implementations: `persistence/` (SQLAlchemy + repos), `rag/` (LlamaIndex + Qdrant), `agent/` (LangChain + Ollama), `speech/` (Whisper, MMS, Chatterbox, F5-TTS), `storage/` (MinIO), `vision/` (InsightFace, ByteTrack, emotion).
+- `src/adapters/` — concrete implementations: `persistence/` (SQLAlchemy + repos), `rag/` (LlamaIndex + Qdrant), `agent/` (LangChain + Ollama), `speech/` (Whisper, MMS, Chatterbox, F5-TTS), `storage/` (MinIO), `vision/` (InsightFace enrolment + the Qdrant face index).
 - `src/drivers/` — entry points: `rest/routers/`, `realtime/routers/` (WebSocket), `main.py` (app + lifespan), `dependencies.py` (DI wiring).
 - `src/seeder/` — standalone CLI (`python -m src.seeder ...`).
 
@@ -88,7 +96,7 @@ Don't add new module-level globals unless there's no other option — prefer `ap
 
 - DB I/O is async (`asyncpg`).
 - `MinIOStorageService` methods are declared `async` but call the **synchronous** MinIO client — they block the event loop. If you touch this code, wrap calls with `asyncio.to_thread()`.
-- Vision / face / emotion / STT / TTS pipelines are CPU- or GPU-bound (OpenCV, InsightFace, transformers, ONNX). When invoked from an async endpoint, route them through `asyncio.to_thread()` or an executor.
+- Face / STT / TTS pipelines are CPU- or GPU-bound (OpenCV, InsightFace, transformers, ONNX). When invoked from an async endpoint, route them through `asyncio.to_thread()` or an executor.
 
 ### Errors & responses
 
@@ -107,34 +115,26 @@ Don't add new module-level globals unless there's no other option — prefer `ap
 
 `TTS_PROVIDER` selects the adapter: `mms` (default fallback), `chatterbox` / `chatterbox-id` / `chatterbox_indonesia`, or `f5` / `f5-tts` / `f5_tts` / `f5-indonesia` / `f5_indo`. STT is always Whisper (when `ENABLE_STT=true`).
 
-### Emotion detection (`src/adapters/vision/emotiefflib_service.py`)
+### The turn WebSocket (`src/drivers/realtime/routers/turn.py`)
 
-One adapter only: EmotiEffLib's ONNX recognizer, `EMOTIEFFLIB_MODEL` (default
-`enet_b2_7`, 7-class AffectNet). Gated by `ENABLE_EMOTION_DETECTION`.
+`/turn/stream` is the only realtime surface. One kiosk, one connection. Text
+frames `turn_begin` / `turn_end` / `cancel` / `reset` / `set_conversation`
+bracket binary audio frames `[type:1][ts:uint64 BE][pcm]`.
 
-Three things that are easy to break here:
+The point of this endpoint is what it *cannot* do. It has no VAD, no
+endpointer, no barge-in detector and no view of the room. The kiosk decided the
+turn was addressed to Luna before the first byte arrived, and nothing here
+second-guesses it. Two consequences worth remembering:
 
-- **emotiefflib is installed `--no-deps` in the Dockerfiles, never from
-  `requirements/base.txt`.** It declares `opencv-python`, which collides with
-  this repo's `opencv-python-headless` (same `cv2`, and the non-headless build
-  needs libGL). Everything else it needs is already present.
-- **Weights are baked at build time** via `get_model_path_onnx()`. Otherwise the
-  library downloads them into `~/.emotiefflib` on first use — a network
-  round-trip at kiosk start-up, lost on every container recreate.
-- **The adapter re-crops from the full frame with a margin and converts to RGB.**
-  The pipeline hands it the tight 112×112 ArcFace-aligned crop, which suits
-  recognition embeddings but not AffectNet models; and the library's ONNX
-  preprocessing does no colour conversion of its own.
+- **`vad_filter=True` in `stt_service.py` is not the removed VAD** and must stay
+  on. It is Whisper's own bundled Silero, and it is the only thing standing
+  between silence and a confident "Terima kasih." — measured at
+  `no_speech_prob=0.000`.
+- **`VOICE_MAX_UTTERANCE_SECONDS` is a memory guard, not a turn-length policy.**
+  It only fires for a kiosk that crashed mid-turn and never sent `turn_end`.
 
-Labels stay lowercase English (`happy`, `sad`, …) — one vocabulary shared by the
-FE overlay, `base.txt`'s MATCH USER ENERGY rules and the stored conversation
-context. Indonesian is resolved in the frontend via `translateEmotion`.
-
-### VAD providers (`_build_vad` in `dependencies.py`)
-
-`VAD_PROVIDER` selects the adapter: `silero` (default — neural Silero VAD, robust against non-stationary noise like crowds/music/HVAC) or `webrtc` (Google's energy-based VAD, kept as fallback). Factory automatically falls back to webrtc if silero load fails. `SILERO_VAD_THRESHOLD` (default 0.5) is the per-frame probability gate for the neural model.
-
-The segmenter (`src/drivers/realtime/voice/segmenter.py`) has a `set_responding(bool)` gate the voice WS router toggles around `_run_pipeline`. While true, **all VAD output is suppressed** — barge-in is exclusively client-driven via the `{"event": "interrupt"}` text frame (FE sends this when the hotword listener catches "stop" / "berhenti", or when the user clicks the manual stop button). This eliminates VAD-noise-triggered false interrupts in noisy kiosk environments.
+`ENABLE_VOICE_WS=false` closes the endpoint. `VOICE_SAMPLE_RATE` is the assumed
+PCM rate for a client that sends no `?sample_rate=`.
 
 ---
 
@@ -146,7 +146,7 @@ Single source of truth: `src/config.py` (Pydantic v2 `Settings`). Access via `fr
 2. Update `docker-compose.yml` env block if it must be set in the container.
 3. Update `.env.example` if it exists.
 
-Required envs (no defaults): `POSTGRES_HOST/DB/USER/PASSWORD`, `MINIO_ENDPOINT/ACCESS_KEY/SECRET_KEY`. Feature flags: `ENABLE_STT`, `ENABLE_TTS`, `ENABLE_FACE_RECOGNITION`, `ENABLE_EMOTION_DETECTION`.
+Required envs (no defaults): `POSTGRES_HOST/DB/USER/PASSWORD`, `MINIO_ENDPOINT/ACCESS_KEY/SECRET_KEY`. Feature flags: `ENABLE_STT`, `ENABLE_TTS`, `ENABLE_FACE_RECOGNITION`, `ENABLE_VOICE_WS`.
 
 ---
 

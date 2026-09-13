@@ -1,12 +1,27 @@
-"""InsightFace adapter — SCRFD detection + ArcFace recognition."""
+"""Face enrolment: YuNet finds the face, SFace turns it into 128 numbers.
+
+Both halves are OpenCV's own, and both are permissively licensed — YuNet
+BSD-3, SFace Apache-2.0. They replace InsightFace, whose `buffalo_sc` pack is
+research-only as a whole, detection weights included, which is not a licence a
+kiosk standing in a university lobby can rely on.
+
+The pairing is not a coincidence. YuNet emits exactly the row SFace's
+`alignCrop` consumes — a box followed by five keypoints — so nothing has to be
+translated between them.
+
+Measured against the SCRFD it replaces, on thirty enrolment photos at the same
+pixel budget: both found every face, YuNet ran 6.1 ms against 3.9 ms median,
+and agreement with the kiosk's own MediaPipe pipeline went from 0.978 to 0.965
+median cosine. Both numbers sit far above the 0.35 match threshold, and a
+detector that runs once per person when their photo is uploaded has no
+meaningful speed budget to blow.
+"""
 
 import asyncio
 import logging
 
 import cv2
 import numpy as np
-from insightface.app import FaceAnalysis
-from skimage import transform as trans
 
 from src.config import settings
 from src.domain.entities.vision import BoundingBox, DetectedFace, FaceDetection, Landmark
@@ -15,7 +30,8 @@ from src.ports.vision import IFaceRecognitionService
 
 logger = logging.getLogger(__name__)
 
-# ArcFace alignment template (112×112)
+# ArcFace alignment template (112×112). Kept because `align()` is part of the
+# port and still used to produce crops; the embedding no longer goes through it.
 _ARCFACE_DST = np.array([
     [38.2946, 51.6963],
     [73.5318, 51.5014],
@@ -29,11 +45,21 @@ def _landmark_to_array(landmark: Landmark) -> np.ndarray:
     return np.array(landmark.points, dtype=np.float32)
 
 
-def _estimate_norm(landmark: Landmark, size: int = 112) -> np.ndarray:
+def _estimate_norm(landmark: Landmark, size: int = 112) -> np.ndarray | None:
+    """The similarity transform from five keypoints onto the template.
+
+    OpenCV rather than scikit-image, and that is the difference between one
+    dependency and four. `skimage.transform.SimilarityTransform` needs scipy,
+    which came in free while InsightFace was installed and cost 40 MB the
+    moment it left. `estimateAffinePartial2D` computes the same class of
+    transform — rotation, uniform scale, translation — and OpenCV is already
+    here for everything else.
+    """
     dst = _ARCFACE_DST.copy() * (size / 112.0) if size != 112 else _ARCFACE_DST.copy()
-    tform = trans.SimilarityTransform()
-    tform.estimate(_landmark_to_array(landmark), dst)
-    return tform.params[0:2, :]
+    matrix, _ = cv2.estimateAffinePartial2D(
+        _landmark_to_array(landmark), dst, method=cv2.LMEDS
+    )
+    return matrix
 
 
 def _wrap_image(arr: np.ndarray | None) -> Image | None:
@@ -47,50 +73,92 @@ def _unwrap(image: Image) -> np.ndarray:
     return image.raw
 
 
-def _parse_face(face, idx: int) -> FaceDetection | None:
-    bbox = face.bbox.astype(int)
-    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-    if x2 <= x1 or y2 <= y1:
-        return None
-    box = BoundingBox.from_xyxy(x1, y1, x2, y2)
-    confidence = float(face.det_score) if hasattr(face, "det_score") else 0.0
-    landmark = (
-        Landmark.from_xy_pairs(face.kps)
-        if getattr(face, "kps", None) is not None
-        else None
-    )
-    return FaceDetection(bbox=box, confidence=confidence, landmark=landmark, detection_index=idx)
-
-
 class FaceRecognitionService(IFaceRecognitionService):
-    """InsightFace face recognition: SCRFD detection + ArcFace embedding."""
+    """YuNet detection + SFace embedding, both from OpenCV."""
 
-    def __init__(self, model_name: str = None, ctx_id: int = None, det_size: int = None):
-        model_name = model_name or settings.face_recognition_model
-        ctx_id = ctx_id if ctx_id is not None else settings.face_recognition_ctx_id
-        det_size = det_size or settings.face_detection_size
+    def __init__(self, det_size: int | None = None):
+        self.det_size = det_size or settings.face_detection_size
+        self._detector = cv2.FaceDetectorYN.create(
+            settings.yunet_model_path,
+            "",
+            (self.det_size, self.det_size),
+            settings.face_detection_threshold,
+            settings.face_detection_nms,
+            5000,
+        )
+        self._sface = None
+        try:
+            from src.adapters.vision.sface_embedder import SFaceEmbedder
 
-        providers = (
-            ["CUDAExecutionProvider", "CPUExecutionProvider"]
-            if ctx_id >= 0
-            else ["CPUExecutionProvider"]
-        )
-        self.app = FaceAnalysis(
-            name=model_name,
-            providers=providers,
-            allowed_modules=["detection", "recognition"],
-        )
-        self.app.prepare(ctx_id=ctx_id, det_size=(det_size, det_size))
-
-        self._rec_model = next(
-            (m for m in self.app.models.values() if hasattr(m, "get_feat")), None
-        )
+            self._sface = SFaceEmbedder(settings.sface_model_path)
+        except Exception as e:
+            # Loud in the log, soft at runtime: the service still detects, and
+            # every enrolment is refused rather than stored as an empty vector
+            # that would look enrolled and never match.
+            logger.error(
+                "SFace could not be loaded (%s) — face enrolment is disabled. "
+                "Expected the model at %s.", e, settings.sface_model_path,
+            )
         logger.info(
-            "InsightFace initialized: model=%s ctx_id=%d det_size=%d",
-            model_name, ctx_id, det_size,
+            "Face pipeline initialized: YuNet det_size=%d + SFace",
+            self.det_size,
         )
 
-    # --- Sync helpers (run inside asyncio.to_thread; safe to chain) ---
+    # --- detection -------------------------------------------------------
+
+    def _detect_raw(self, img: np.ndarray) -> list[tuple[np.ndarray, float]]:
+        """Every face as (5×2 keypoints in ORIGINAL pixels, score).
+
+        Detected on a downscaled copy and scaled back. Running YuNet at the
+        full resolution of a phone photo took 23 ms against 6 ms here and
+        found FEWER faces — the model is trained around a fixed input scale,
+        and a 3000 px portrait puts the face far outside it.
+        """
+        if img is None or img.size == 0:
+            return []
+        h, w = img.shape[:2]
+        scale = self.det_size / float(max(w, h))
+        small = cv2.resize(
+            img,
+            (max(1, int(w * scale)), max(1, int(h * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
+        sh, sw = small.shape[:2]
+        try:
+            self._detector.setInputSize((sw, sh))
+            _, faces = self._detector.detect(small)
+        except Exception as e:
+            logger.warning("YuNet detection failed: %s", e)
+            return []
+        if faces is None:
+            return []
+
+        out = []
+        for row in faces:
+            # YuNet row: x, y, w, h, then five keypoints, then score.
+            kps = np.array(row[4:14], dtype=np.float32).reshape(5, 2) / scale
+            out.append((kps, float(row[14])))
+        return out
+
+    @staticmethod
+    def _detection_from(kps: np.ndarray, score: float, idx: int) -> FaceDetection | None:
+        """The box is derived from the keypoints rather than taken from the
+        detector, so the box and the points can never describe different faces."""
+        xs, ys = kps[:, 0], kps[:, 1]
+        pad_x = (xs.max() - xs.min()) * 0.6
+        pad_y = (ys.max() - ys.min()) * 0.8
+        x1, y1 = int(max(0, xs.min() - pad_x)), int(max(0, ys.min() - pad_y))
+        x2, y2 = int(xs.max() + pad_x), int(ys.max() + pad_y)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return FaceDetection(
+            bbox=BoundingBox.from_xyxy(x1, y1, x2, y2),
+            confidence=score,
+            landmark=Landmark.from_xy_pairs(kps),
+            detection_index=idx,
+        )
+
+    # --- sync workers ----------------------------------------------------
 
     def _decode_sync(self, image_bytes: bytes) -> np.ndarray | None:
         try:
@@ -100,16 +168,34 @@ class FaceRecognitionService(IFaceRecognitionService):
             logger.warning("decode failed: %s", e)
             return None
 
+    def _detect_from_array_sync(self, img: np.ndarray) -> list[FaceDetection]:
+        found = []
+        for idx, (kps, score) in enumerate(self._detect_raw(img)):
+            det = self._detection_from(kps, score, idx)
+            if det is not None:
+                found.append(det)
+        return found
+
+    def _detect_from_bytes_sync(self, image_bytes: bytes) -> list[FaceDetection]:
+        img = self._decode_sync(image_bytes)
+        return self._detect_from_array_sync(img) if img is not None else []
+
     def _detect_with_embedding_sync(self, image_bytes: bytes) -> list[DetectedFace]:
         img = self._decode_sync(image_bytes)
         if img is None:
             return []
         results = []
-        for idx, face in enumerate(self.app.get(img)):
-            det = _parse_face(face, idx)
+        for idx, (kps, score) in enumerate(self._detect_raw(img)):
+            det = self._detection_from(kps, score, idx)
             if det is None:
                 continue
-            embedding = face.embedding.tolist() if face.embedding is not None else []
+            embedding = self._sface.embed(img, kps) if self._sface else None
+            if not embedding:
+                logger.warning(
+                    "Face %d detected but not embedded — skipping rather than "
+                    "storing an empty vector nothing can ever match.", idx,
+                )
+                continue
             results.append(DetectedFace(
                 bbox=det.bbox,
                 embedding=embedding,
@@ -119,28 +205,6 @@ class FaceRecognitionService(IFaceRecognitionService):
             ))
         return results
 
-    def _detect_from_array_sync(self, img: np.ndarray) -> list[FaceDetection]:
-        det_model = self.app.models.get("detection")
-        if det_model is not None:
-            bboxes, kpss = det_model.detect(img, max_num=0, metric="default")
-            raw_faces = []
-            for i in range(len(bboxes)):
-                face = type("Face", (), {})()
-                face.bbox = bboxes[i, :4]
-                face.det_score = bboxes[i, 4]
-                face.kps = kpss[i] if kpss is not None else None
-                raw_faces.append(face)
-        else:
-            raw_faces = self.app.get(img)
-
-        return [
-            d for d in (_parse_face(f, i) for i, f in enumerate(raw_faces)) if d is not None
-        ]
-
-    def _detect_from_bytes_sync(self, image_bytes: bytes) -> list[FaceDetection]:
-        img = self._decode_sync(image_bytes)
-        return self._detect_from_array_sync(img) if img is not None else []
-
     def _align_sync(
         self,
         image: np.ndarray,
@@ -149,24 +213,11 @@ class FaceRecognitionService(IFaceRecognitionService):
     ) -> np.ndarray | None:
         try:
             M = _estimate_norm(landmark, output_size[0])
+            if M is None:
+                return None
             return cv2.warpAffine(image, M, output_size, borderValue=0.0)
         except Exception as e:
             logger.warning("align failed: %s", e)
-            return None
-
-    def _embed_sync(self, aligned_face: np.ndarray) -> list[float] | None:
-        if self._rec_model is None:
-            return None
-        try:
-            if aligned_face.shape[:2] != (112, 112):
-                aligned_face = cv2.resize(aligned_face, (112, 112))
-            emb = self._rec_model.get_feat(aligned_face).flatten()
-            norm = np.linalg.norm(emb)
-            if norm > 0:
-                emb = emb / norm
-            return emb.tolist()
-        except Exception as e:
-            logger.warning("embed failed: %s", e)
             return None
 
     def _crop_sync(
@@ -175,22 +226,21 @@ class FaceRecognitionService(IFaceRecognitionService):
         try:
             h, w = image.shape[:2]
             pad_x, pad_y = int(bbox.width * padding), int(bbox.height * padding)
-            x1, y1 = max(0, bbox.x - pad_x), max(0, bbox.y - pad_y)
-            x2, y2 = (
-                min(w, bbox.x + bbox.width + pad_x),
-                min(h, bbox.y + bbox.height + pad_y),
-            )
-            cropped = image[y1:y2, x1:x2]
-            return cropped if cropped.size > 0 else None
+            x1 = max(0, bbox.x - pad_x)
+            y1 = max(0, bbox.y - pad_y)
+            x2 = min(w, bbox.x + bbox.width + pad_x)
+            y2 = min(h, bbox.y + bbox.height + pad_y)
+            if x2 <= x1 or y2 <= y1:
+                return None
+            return image[y1:y2, x1:x2].copy()
         except Exception as e:
             logger.warning("crop failed: %s", e)
             return None
 
-    # --- Async port methods ---
+    # --- port ------------------------------------------------------------
 
     async def decode(self, image_bytes: bytes) -> Image | None:
-        arr = await asyncio.to_thread(self._decode_sync, image_bytes)
-        return _wrap_image(arr)
+        return _wrap_image(await asyncio.to_thread(self._decode_sync, image_bytes))
 
     async def detect_with_embedding(self, image_bytes: bytes) -> list[DetectedFace]:
         return await asyncio.to_thread(self._detect_with_embedding_sync, image_bytes)
@@ -211,7 +261,14 @@ class FaceRecognitionService(IFaceRecognitionService):
         return _wrap_image(arr)
 
     async def embed(self, aligned_face: Image) -> list[float] | None:
-        return await asyncio.to_thread(self._embed_sync, _unwrap(aligned_face))
+        """Not the enrolment path.
+
+        Enrolment embeds from the ORIGINAL frame plus keypoints, because SFace
+        does its own alignment and feeding it a pre-aligned crop aligns twice.
+        This exists only to satisfy the port.
+        """
+        logger.debug("embed(aligned_face) is not used by the SFace path")
+        return None
 
     async def crop(
         self, image: Image, bbox: BoundingBox, padding: float = 0.1

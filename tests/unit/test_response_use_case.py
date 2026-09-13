@@ -60,7 +60,7 @@ async def test_response_text_emits_done_and_persists_messages():
     async for ev in use_case.execute(
         conversation_id=None,
         user_input="hi",
-        character=Character.VENDRA,
+        character=Character.LUNA,
         context=None,
         enable_tts=True,
     ):
@@ -92,7 +92,7 @@ async def test_response_text_emits_error_for_unknown_conversation():
     async for ev in use_case.execute(
         conversation_id="not-found",
         user_input="hi",
-        character=Character.VENDRA,
+        character=Character.LUNA,
         context=None,
         enable_tts=False,
     ):
@@ -119,7 +119,7 @@ async def test_response_text_passes_domain_messages_to_agent():
     async for _ in use_case.execute(
         conversation_id=conv.id,
         user_input="hi",
-        character=Character.VENDRA,
+        character=Character.LUNA,
         context=None,
         enable_tts=False,
     ):

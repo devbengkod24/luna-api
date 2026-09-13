@@ -12,11 +12,8 @@ from .speech.tts_service import (
     MMSTTSService,
 )
 from .storage.minio_service import MinIOStorageService
-from .vision.asd_service import ActiveSpeakerService
-from .vision.emotiefflib_service import EmotiEffLibService
 from .vision.face_recognition_service import FaceRecognitionService
 from .vision.face_store import FaceStore
-from .vision.tracker_service import TrackerService
 
 __all__ = [
     "LangchainAgentService",
@@ -29,9 +26,6 @@ __all__ = [
     "MinIOStorageService",
     "FaceStore",
     "FaceRecognitionService",
-    "TrackerService",
-    "EmotiEffLibService",
-    "ActiveSpeakerService",
     "FilePromptRepository",
     "StdUuidGenerator",
 ]

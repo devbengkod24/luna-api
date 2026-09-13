@@ -12,6 +12,7 @@ from .response import (
 )
 from .conversation import Conversation, Message
 from .file import File
+from .photo import Photo, StoredObject
 
 __all__ = [
     "UserMessage",
@@ -25,4 +26,6 @@ __all__ = [
     "Conversation",
     "Message",
     "File",
+    "Photo",
+    "StoredObject",
 ]

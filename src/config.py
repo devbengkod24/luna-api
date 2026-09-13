@@ -110,23 +110,49 @@ class Settings(BaseSettings):
 
     gpu_device: int = Field(default=-1, alias="GPU_DEVICE")  # -1 for CPU, 0+ for GPU
 
-    # Face Recognition (InsightFace)
+    # Face Recognition (OpenCV: YuNet detection + SFace embedding)
     enable_face_recognition: bool = Field(default=True, alias="ENABLE_FACE_RECOGNITION")
-    face_recognition_model: str = Field(
-        default="buffalo_sc", alias="FACE_RECOGNITION_MODEL"
-    )
-    face_recognition_ctx_id: int = Field(
-        default=-1, alias="FACE_RECOGNITION_CTX_ID"
-    )  # -1 CPU, 0+ GPU
+    # The longest side a photo is scaled to before detection. YuNet is trained
+    # around a fixed input scale, and handing it a 3000 px phone portrait was
+    # measured at 23 ms against 6 ms here — and it found fewer faces, not more.
     face_detection_size: int = Field(
         default=320, alias="FACE_DETECTION_SIZE"
-    )  # Detection size (320 faster, 640 more accurate)
+    )  # 320 faster, 640 more accurate
     face_similarity_threshold: float = Field(
         default=0.5, alias="FACE_SIMILARITY_THRESHOLD"
     )  # Cosine similarity threshold (0.4-0.6 recommended)
 
+    # Width of the face vectors in Qdrant. 512 = InsightFace ArcFace, which is
+    # what the existing index was seeded with; 128 = SFace, which luna-edge now
+    # computes. A collection is created at one width and rejects any other, so
+    # changing this requires recreating the collection AND re-seeding every face
+    # from the same model that will later query it.
+    # SFace, 128. Must equal what the kiosk sends: the edge embeds with the
+    # same model, and a vector of the wrong length is not a poor match but an
+    # impossible comparison. Changing it means recreating the collection and
+    # re-seeding, because vectors of two sizes cannot share an index.
+    face_embedding_dim: int = Field(default=128, alias="FACE_EMBEDDING_DIM")
+    sface_model_path: str = Field(
+        default="storage/models/face_recognition_sface_2021dec.onnx",
+        alias="SFACE_MODEL_PATH",
+    )
+    yunet_model_path: str = Field(
+        default="storage/models/face_detection_yunet_2023mar.onnx",
+        alias="YUNET_MODEL_PATH",
+    )
+    # YuNet's own confidence gate, and the NMS overlap above which two boxes
+    # are judged to be the same face. Enrolment photos are posed and well lit,
+    # so the default is deliberately strict: a second, spurious face in the
+    # frame is worse here than a missed one, because it enrols a stranger
+    # under somebody else's name.
+    face_detection_threshold: float = Field(default=0.6, alias="FACE_DETECTION_THRESHOLD")
+    face_detection_nms: float = Field(default=0.3, alias="FACE_DETECTION_NMS")
+
     face_max_batch_size: int = 100  # Max faces per request
     face_max_image_size: int = 10 * 1024 * 1024  # 10MB
+    # A composed photobooth frame is a few hundred KB. The ceiling is for a
+    # client that sends something else entirely, not for a large photo.
+    photo_max_image_size: int = 10 * 1024 * 1024  # 10MB
 
     persist_dir: str = "storage/index"
     rag_max_file_size: int = 50 * 1024 * 1024  # 50MB
@@ -190,49 +216,6 @@ class Settings(BaseSettings):
         default_factory=lambda: ["dinus.ac.id"], alias="EXA_CAMPUS_DOMAINS"
     )
 
-    # Emotion Detection
-    enable_emotion_detection: bool = Field(
-        default=True, alias="ENABLE_EMOTION_DETECTION"
-    )
-    # EmotiEffLib model name — must be one of emotiefflib.facial_analysis
-    # .get_model_list(). "enet_b2_7" is the 7-class AffectNet EfficientNet-B2
-    # (30.8 MB) and its labels map 1:1 onto the vocabulary the rest of Luna
-    # speaks. The "_8" variants add a Contempt class; "_va_mtl" ones also emit
-    # valence/arousal. Note there is no "enet_b2_8_best" ONNX in the upstream
-    # repo despite the .pt of that name — only enet_b2_8 and enet_b2_7.
-    #
-    # Weights are baked into the image at build time (see Dockerfile). Changing
-    # this to another name means rebuilding, or the library downloads it at
-    # first use — a network round-trip during kiosk start-up.
-    emotiefflib_model: str = Field(
-        default="enet_b2_7", alias="EMOTIEFFLIB_MODEL"
-    )
-
-    # Vision / Tracker (ByteTrack)
-    tracker_max_age: int = Field(default=30, alias="TRACKER_MAX_AGE")
-    tracker_min_hits: int = Field(default=3, alias="TRACKER_MIN_HITS")
-    tracker_min_score: float = Field(default=0.4, alias="TRACKER_MIN_SCORE")
-
-    # Vision / Recognition pipeline
-    vision_emotion_interval: int = Field(default=5, alias="VISION_EMOTION_INTERVAL")
-    vision_recognition_retry_interval: float = Field(
-        default=2.0, alias="VISION_RECOGNITION_RETRY_INTERVAL"
-    )
-    vision_max_recognition_attempts: int = Field(
-        default=5, alias="VISION_MAX_RECOGNITION_ATTEMPTS"
-    )
-
-    # Vision / WebSocket optimizations
-    vision_target_latency_ms: float = Field(
-        default=150.0, alias="VISION_TARGET_LATENCY_MS"
-    )
-    vision_latency_window: int = Field(default=10, alias="VISION_LATENCY_WINDOW")
-    vision_throttle_min_fps: int = Field(default=5, alias="VISION_THROTTLE_MIN_FPS")
-    vision_throttle_max_fps: int = Field(default=30, alias="VISION_THROTTLE_MAX_FPS")
-    vision_throttle_emit_interval: float = Field(
-        default=2.0, alias="VISION_THROTTLE_EMIT_INTERVAL"
-    )
-
     # Speech-to-Text (Faster Whisper)
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
     whisper_model: str = Field(default="small", alias="WHISPER_MODEL")
@@ -244,126 +227,18 @@ class Settings(BaseSettings):
     # via `whisper_beam_size`.
     whisper_voice_beam_size: int = Field(default=5, alias="WHISPER_VOICE_BEAM_SIZE")
 
-    # Voice WebSocket / VAD
+    # Turn WebSocket (/turn/stream)
     enable_voice_ws: bool = Field(default=True, alias="ENABLE_VOICE_WS")
-    # "silero" (neural, robust in noise) or "webrtc" (energy-based fallback).
-    # Factory in dependencies.py auto-falls back to webrtc if silero load fails.
-    vad_provider: str = Field(default="silero", alias="VAD_PROVIDER")
-    silero_vad_threshold: float = Field(default=0.5, alias="SILERO_VAD_THRESHOLD")
-    voice_vad_aggressiveness: int = Field(default=2, alias="VOICE_VAD_AGGRESSIVENESS")
-    voice_vad_sample_rate: int = Field(default=16000, alias="VOICE_VAD_SAMPLE_RATE")
-    voice_vad_frame_ms: int = Field(default=30, alias="VOICE_VAD_FRAME_MS")
-    voice_speech_start_frames: int = Field(
-        default=3, alias="VOICE_SPEECH_START_FRAMES"
-    )  # consecutive speech frames to enter SPEAKING (~90ms)
-    voice_speech_end_frames: int = Field(
-        default=27, alias="VOICE_SPEECH_END_FRAMES"
-    )  # consecutive silence frames to end utterance (~800ms). Lower = snappier
-    # turn-taking but risks cutting off hesitant speakers; raise toward 25 (~750ms)
-    # if the kiosk audience pauses mid-sentence a lot.
-    voice_prebuffer_frames: int = Field(
-        default=7, alias="VOICE_PREBUFFER_FRAMES"
-    )  # frames retained before speech_start (~210ms)
+    # PCM-16 mono sample rate the kiosk streams. A kiosk may override it per
+    # connection with `?sample_rate=`; this is what an older client that sends
+    # no parameter is assumed to be using.
+    voice_sample_rate: int = Field(default=16000, alias="VOICE_SAMPLE_RATE")
+    # Ceiling on one turn's audio. The kiosk decides when a turn ends — this is
+    # the guard for a kiosk that crashes mid-turn and never sends `turn_end`,
+    # so the buffer cannot grow without bound.
     voice_max_utterance_seconds: float = Field(
         default=30.0, alias="VOICE_MAX_UTTERANCE_SECONDS"
     )
-
-    # --- Barge-in (talking over the assistant) ---
-    # "vad"     — the user can just start talking; sustained speech while the
-    #             reply plays cancels it (fused with the facing signal below).
-    # "hotword" — only the client-side "stop"/"berhenti" listener and the manual
-    #             button can interrupt. Fall back to this if the kiosk's speaker
-    #             leaks past echo cancellation badly enough to false-trigger.
-    voice_barge_in_mode: str = Field(default="vad", alias="VOICE_BARGE_IN_MODE")
-    # Barge-in is decided over a SLIDING WINDOW, not a consecutive run. Requiring
-    # an unbroken streak was too brittle: human speech has micro-gaps between
-    # words, and during double-talk the browser's echo canceller attenuates the
-    # near-end talker in bursts — so a single sub-threshold frame kept resetting
-    # the count and barge-in rarely fired. A ratio over a window tolerates those
-    # dropouts while still rejecting TTS leak, which is intermittent rather than
-    # dense. Window is also how much of the user's opening words is lost, since
-    # audio captured during detection is discarded as contaminated.
-    voice_barge_in_window_frames: int = Field(
-        default=15, alias="VOICE_BARGE_IN_WINDOW_FRAMES"
-    )  # 15 x 30 ms = 450 ms of context
-    voice_barge_in_ratio: float = Field(default=0.6, alias="VOICE_BARGE_IN_RATIO")
-    # Frames dropped after a barge-in is honoured, covering the round-trip until
-    # the client actually silences the speaker plus the echo canceller's
-    # re-convergence. Everything captured in that gap is part assistant, and
-    # splicing it in front of the user's sentence is what ruined the transcript.
-    # ~250 ms at 30 ms frames. This is the FIRST knob to raise if barge-in
-    # transcripts still come back garbled.
-    voice_barge_in_settle_frames: int = Field(
-        default=8, alias="VOICE_BARGE_IN_SETTLE_FRAMES"
-    )
-    # A barge-in is only honoured if the mean facing score over this trailing
-    # window clears FACING_THRESHOLD — someone talking to a friend beside the
-    # kiosk should not cancel the reply. Fails OPEN: with no facing samples
-    # (camera off / voice-only), barge-in works on audio alone.
-    voice_barge_in_facing_window_ms: int = Field(
-        default=1500, alias="VOICE_BARGE_IN_FACING_WINDOW_MS"
-    )
-    # Safety net for the "playback finished" signal the client sends once its
-    # audio queue drains. The reply's audio is generated much faster than it
-    # plays (measured: a 61 s reply finished streaming in 16 s), so the listening
-    # gate must stay closed until playback really ends — otherwise the kiosk
-    # spends the difference transcribing its own speaker. If the client never
-    # reports (disconnect, muted tab), release after this many seconds anyway.
-    voice_playback_grace_seconds: float = Field(
-        default=120.0, alias="VOICE_PLAYBACK_GRACE_SECONDS"
-    )
-
-    # Device-Directed Speech Detection (Active Speaker Detection + facing fusion)
-    # When enabled, a finished VAD utterance is only committed to STT/LLM/TTS if
-    # the candidate face was both facing the kiosk AND its lip motion correlated
-    # with the audio (LR-ASD). Fail-open: if ASD can't load or no face is tracked,
-    # the utterance is treated as directed so the system never goes deaf.
-    enable_asd: bool = Field(default=False, alias="ENABLE_ASD")
-    # ONNX runtime (3 sessions: audio/visual frontends + AV backend). Models are
-    # the deeptalk re-export of LR-ASD MIT — see storage/models/asd/README.md.
-    asd_audio_model_path: str = Field(
-        default="storage/models/asd/audio_frontend.onnx",
-        alias="ASD_AUDIO_MODEL_PATH",
-    )
-    asd_visual_model_path: str = Field(
-        default="storage/models/asd/visual_frontend.onnx",
-        alias="ASD_VISUAL_MODEL_PATH",
-    )
-    asd_av_model_path: str = Field(
-        default="storage/models/asd/av_backend.onnx",
-        alias="ASD_AV_MODEL_PATH",
-    )
-    # ONNX runtime intra-op threads. Bench: 2 is the sweet spot on typical
-    # 2-core kiosks (~2× faster than PyTorch); 1 erodes the win, >2 hurts on
-    # small models. ASD runs in short bursts at SPEECH_END so claiming threads
-    # is fine — LLM hasn't started yet.
-    asd_num_threads: int = Field(default=2, alias="ASD_NUM_THREADS")
-    # Per-frame speaking probability gate (sigmoid of av_backend logit, 0..1).
-    # The ONNX head emits a single class logit (not the 2-class softmax of the
-    # original PyTorch path), so this threshold runs higher than the old 0.4 —
-    # 0.5 is a sane default; tune on real speaking input.
-    asd_score_threshold: float = Field(default=0.5, alias="ASD_SCORE_THRESHOLD")
-    # Fraction of the utterance's frames that must clear asd_score_threshold for
-    # the candidate to count as the active speaker.
-    asd_presence_ratio: float = Field(default=0.35, alias="ASD_PRESENCE_RATIO")
-    # Nominal video fps used to scale the LR-ASD MFCC window when the real crop
-    # fps can't be measured (winlen=0.025*25/fps, winstep=0.010*25/fps). The
-    # session router measures the actual delivered fps per utterance; this is the
-    # fallback. LR-ASD is calibrated to 25 fps — see asd_service.py.
-    asd_nominal_fps: float = Field(default=25.0, alias="ASD_NOMINAL_FPS")
-    # Mean facing score (FE MediaPipe metadata, 0..1) required over the utterance.
-    # The FE score is "fraction of margin left to the frontal-cone boundary along
-    # the worst axis" (min of the yaw/pitch/proximity ramps, pitch ramp peaked at
-    # the user's observed neutral pose). So 0.35 means "stayed within the inner
-    # 65% of the cone, on average". The mean spans the whole utterance window —
-    # including the ~600 ms of trailing silence the VAD needs — so heads that
-    # relax at the end drag it down; don't set this near 1.
-    #
-    # PROVISIONAL. Calibrate from the `facing=` field of the `directedness:` INFO
-    # log on the real kiosk before trusting it. Was 0.5 against an older score
-    # that multiplied the ramps and peaked at the cone's geometric centre, which
-    # rejected ~85% of the poses the FE pre-gate accepts.
-    facing_threshold: float = Field(default=0.35, alias="FACING_THRESHOLD")
 
     # Text-to-Speech (Facebook MMS-TTS Indonesian)
     enable_tts: bool = Field(default=True, alias="ENABLE_TTS")

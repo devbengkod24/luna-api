@@ -18,10 +18,6 @@ qdrant-client==1.16.1
 # python-socketio==5.15.0
 # sse-starlette==3.0.3
 msgpack==1.1.0
-webrtcvad-wheels==2.0.14
-silero-vad==5.1.2
-# Active Speaker Detection (LR-ASD): MFCC feature extraction
-python_speech_features==0.6
 
 # LLM & Agent
 langchain==1.3.1
@@ -50,25 +46,17 @@ pymupdf==1.26.7
 docx2txt==0.9
 
 # Face Recognition
-insightface==0.7.3
-ioutrack-rs==0.4.0
 opencv-python-headless==4.9.0.80
 numpy>=1.26.0,<2.0.0
 
 # STT
 faster-whisper==1.2.1
 
-# Emotion Detection
 # transformers==5.2.0  # SLIM: only needed by the MMS-TTS adapter. Unused with cartesia. Re-enable to switch back.
-onnxruntime>=1.16.0
-onnx>=1.16.0          # EmotiEffLib's ONNX path edits the graph to strip the classifier head
-# emotiefflib is installed with --no-deps in the Dockerfile, NOT from here: it
-# declares `opencv-python`, which collides with the `opencv-python-headless`
-# above (same `cv2` module, and the non-headless build needs libGL). Every one
-# of its other requirements — numpy, onnx, onnxruntime, pillow — is already
-# satisfied. Do not move it into this file.
-# tensorflow==2.20.0  # only needed for EmotiEffLib's engagement classifier (.h5 + tf.keras at runtime)
-# pillow==11.1.0
+# onnxruntime is NOT listed here and must not be removed from the image: it
+# arrives as a faster-whisper dependency and is what runs Whisper's own Silero
+# VAD. That is `vad_filter=True`, the only guard that stops silence decoding as
+# a confident "Terima kasih." Nothing in this repo imports it directly.
 
 # Utils
 python-dotenv==1.2.1
