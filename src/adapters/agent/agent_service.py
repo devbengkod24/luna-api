@@ -1,14 +1,13 @@
 import asyncio
 import json
 import uuid
-from pathlib import Path
 from typing import Any, AsyncGenerator
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage as LCAIMessage, HumanMessage, SystemMessage, ToolMessage as LCToolMessage
 from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
-from nemoguardrails import LLMRails, RailsConfig
 
+from src.adapters.agent.input_guard import refusal_for
 from src.adapters.agent.middlewares.pseudo_tool_mitigation import strip_pseudo_tools_middleware
 from src.config import settings
 from src.domain.entities import (
@@ -36,9 +35,6 @@ from src.ports.services import IAgentService, IRAGService
 
 import logging
 logger = logging.getLogger(__name__)
-
-_GUARDRAIL_PASS = "GUARDRAIL_PASS"
-_GUARDRAILS_PATH = Path(__file__).parent / "guardrails"
 
 
 class LangchainAgentService(IAgentService):
@@ -80,17 +76,11 @@ class LangchainAgentService(IAgentService):
             logger.error("Agent build failed at startup: %s", e)
             raise
 
-        try:
-            self.rails = LLMRails(RailsConfig.from_path(str(_GUARDRAILS_PATH)))
-        except Exception as e:
-            logger.warning("Guardrails init failed (running without guardrails): %s", e)
-            self.rails = None
-
     def _create_tools(self):
         web_search_fn = self._build_web_search()
 
         @tool(response_format="content_and_artifact")
-        def search_web(query: str, scope: str = "general"):
+        async def search_web(query: str, scope: str = "general"):
             """Search the web for information you do not reliably know.
 
             scope="campus" — the question is about Universitas Dian Nuswantoro
@@ -109,7 +99,18 @@ class LangchainAgentService(IAgentService):
             if web_search_fn is None:
                 return "Web search is not configured.", []
             try:
-                return web_search_fn(query, scope)
+                # Bounded like rag_search. The Exa client is synchronous and has
+                # no timeout of its own, so a hung search used to hold the turn
+                # until the agent's 45 s idle timeout. The thread is abandoned on
+                # timeout; the answer goes on without it.
+                async with asyncio.timeout(settings.agent_tool_timeout_seconds):
+                    return await asyncio.to_thread(web_search_fn, query, scope)
+            except TimeoutError:
+                logger.warning(
+                    "Web search timed out after %.0fs (scope=%s)",
+                    settings.agent_tool_timeout_seconds, scope,
+                )
+                return "Web search timed out; answer without it or say the information is unavailable.", []
             except Exception as e:
                 logger.warning("Web search failed (scope=%s): %s", scope, e)
                 return f"Web search error: {str(e)}", []
@@ -127,6 +128,10 @@ class LangchainAgentService(IAgentService):
             Pass a standalone, keyword-rich query — resolve pronouns and follow-up
             context from the conversation into an explicit query.
             DO NOT use for general information outside the Udinus context.
+
+            Always returns the closest passages, even when none answers the
+            question. If they do not state the exact fact asked, call search_web
+            with scope="campus" — never answer from passages on another topic.
             """
             try:
                 async with asyncio.timeout(settings.agent_tool_timeout_seconds):
@@ -262,17 +267,20 @@ class LangchainAgentService(IAgentService):
             chat_history = [self._to_lc_message(m) for m in messages]
             chat_history = self._pair_tool_messages([m for m in chat_history if m is not None])
 
-            if self.rails:
-                try:
-                    check = await self.rails.generate_async(
-                        messages=[{"role": "user", "content": user_input}]
+            refusal = refusal_for(user_input)
+            if refusal is not None:
+                yield TokenEvent(content=refusal)
+                # As an assistant turn, so it is persisted like any answer: the
+                # history must not show the question with nothing after it.
+                yield AssistantEvent(
+                    message=AIMessage(
+                        content=refusal,
+                        additional_kwargs=[],
+                        response_metadata=ResponseMetadata(model="input-guard", done_reason="refused"),
+                        usage_metadata=UsageMetadata(input_tokens=0, output_tokens=0, total_tokens=0),
                     )
-                    content = check.get("content", "")
-                    if content and content != _GUARDRAIL_PASS:
-                        yield TokenEvent(content=content)
-                        return
-                except Exception as e:
-                    logger.warning("Guardrails check error (skipping): %s", e)
+                )
+                return
 
             yield LogEvent(content="Memproses dengan agent...")
 
@@ -434,15 +442,3 @@ class LangchainAgentService(IAgentService):
                 total_tokens=um.get("total_tokens", 0),
             ),
         )
-
-    async def preprocess_tts(self, text: str, system_prompt: str) -> str:
-        """Preprocess text for TTS."""
-        try:
-            messages = [SystemMessage(content=system_prompt), HumanMessage(content=text)]
-            response = await self.llm.ainvoke(messages)
-
-            return response.content.strip()
-
-        except Exception as e:
-            logger.error("Error preprocess text for TTS: %s", e)
-            return text

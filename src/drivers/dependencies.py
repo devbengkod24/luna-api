@@ -6,7 +6,8 @@ the incoming `Request`.
 """
 
 import logging
-from typing import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, AsyncIterator
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,6 @@ from src.adapters import (
     LlamaIndexRAGService,
     MMSTTSService,
     MinIOStorageService,
-    WhisperSTTService,
 )
 from src.adapters.identifiers import StdUuidGenerator
 from src.adapters.persistence import (
@@ -35,7 +35,7 @@ from src.adapters.prompts import FilePromptRepository
 from src.config import settings
 from src.ports.identifiers import IUuidGenerator
 from src.ports.prompts import IPromptRepository
-from src.ports.services import ISTTService
+from src.ports.services import ISTTService, ITTSService
 from src.shared.exceptions import ServiceUnavailableException
 from src.use_cases import (
     DeleteConversationUseCase,
@@ -59,6 +59,7 @@ from src.use_cases import (
     UpdateConversationUseCase,
     UploadFileUseCase,
 )
+from src.use_cases.response_use_case import ResponseOptions
 
 logger = logging.getLogger(__name__)
 
@@ -66,16 +67,17 @@ logger = logging.getLogger(__name__)
 class AppContainer:
     """Holds long-lived adapter instances. Attached to `app.state.container`."""
 
-    db_connection: DatabaseConnection | None = None
-    rag_service: LlamaIndexRAGService | None = None
-    storage_service: MinIOStorageService | None = None
-    stt_service: ISTTService | None = None
-    tts_service: object | None = None
-    agent_service: LangchainAgentService | None = None
-    face_service: FaceStore | None = None
-    face_recognition: FaceRecognitionService | None = None
-    prompt_repository: IPromptRepository | None = None
-    uuid_generator: IUuidGenerator | None = None
+    def __init__(self) -> None:
+        self.db_connection: DatabaseConnection | None = None
+        self.rag_service: LlamaIndexRAGService | None = None
+        self.storage_service: MinIOStorageService | None = None
+        self.stt_service: ISTTService | None = None
+        self.tts_service: ITTSService | None = None
+        self.agent_service: LangchainAgentService | None = None
+        self.face_service: FaceStore | None = None
+        self.face_recognition: FaceRecognitionService | None = None
+        self.prompt_repository: IPromptRepository | None = None
+        self.uuid_generator: IUuidGenerator | None = None
 
 
 def initialize_container() -> AppContainer:
@@ -107,33 +109,25 @@ def _build_storage() -> MinIOStorageService | None:
         return None
 
 
-def _build_stt() -> ISTTService:
-    """Build the STT adapter for STT_PROVIDER, falling back to Whisper.
+def _build_stt() -> ISTTService | None:
+    """Build the Deepgram STT adapter, or None if it cannot start.
 
-    Deepgram is a network dependency, so a missing key or SDK must not leave
-    the kiosk deaf — it degrades to the local Whisper model instead.
+    There is no local model to fall back to on this branch — exp/edge is the
+    Whisper branch. None makes /turn/stream refuse the kiosk outright, which is
+    louder than a kiosk that connects and then never hears anyone.
     """
-    provider = (settings.stt_provider or "whisper").strip().lower()
-
-    if provider == "deepgram":
-        try:
-            if not settings.deepgram_api_key:
-                raise ValueError("DEEPGRAM_API_KEY is not set")
-            return DeepgramSTTService(api_key=settings.deepgram_api_key)
-        except Exception as e:
-            logger.warning("Could not initialize Deepgram STT (%s) — falling back to Whisper.", e)
-    elif provider != "whisper":
-        logger.warning("Unknown STT_PROVIDER=%r — falling back to Whisper.", provider)
-
-    return WhisperSTTService(
-        model_size=settings.whisper_model,
-        device=settings.gpu_device,
-    )
+    try:
+        if not settings.deepgram_api_key:
+            raise ValueError("DEEPGRAM_API_KEY is not set")
+        return DeepgramSTTService(api_key=settings.deepgram_api_key)
+    except Exception as e:
+        logger.error("Could not initialize Deepgram STT (%s) — voice turns are disabled.", e)
+        return None
 
 
-def _build_speech() -> tuple[ISTTService | None, object | None]:
+def _build_speech() -> tuple[ISTTService | None, ITTSService | None]:
     stt: ISTTService | None = None
-    tts: object | None = None
+    tts: ITTSService | None = None
 
     if settings.enable_stt:
         stt = _build_stt()
@@ -196,7 +190,6 @@ def _warm_prompt_cache(prompts: IPromptRepository) -> None:
 
         for character in Character:
             prompts.get_system_prompt(character)
-        prompts.get_tts_system_prompt()
     except Exception as e:
         logger.warning("Prompt warm-up failed (non-fatal): %s", e)
 
@@ -217,27 +210,40 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
         yield session
 
 
+@asynccontextmanager
+async def db_session(container: AppContainer) -> AsyncIterator[AsyncSession]:
+    """One committed-on-exit session, for streams that outlive a request's
+    dependencies. The block exits — and the transaction commits — before the
+    caller announces that the reply is done, so a client that reacts to `done`
+    by reading the conversation finds it there."""
+    if container.db_connection is None:
+        raise ServiceUnavailableException("Database is not available.")
+    async with container.db_connection.session() as session:
+        yield session
+
+
 # --- Response use case factories ---
 
-async def get_response_text_use_case(
-    request: Request,
-    session: AsyncSession = Depends(get_db_session),
-) -> ResponseTextUseCase:
-    container = container_from(request)
+def response_options() -> ResponseOptions:
+    return ResponseOptions(
+        history_limit=settings.chat_history_limit,
+        agent_idle_timeout_s=settings.agent_idle_timeout_seconds,
+        timezone=settings.app_timezone,
+    )
+
+
+def build_response_text_use_case(container: AppContainer, session: AsyncSession) -> ResponseTextUseCase:
     return ResponseTextUseCase(
         conversation_repo=ConversationRepository(session),
         message_repo=MessageRepository(session),
         agent_service=container.agent_service,
         tts_service=container.tts_service,
         prompt_repo=container.prompt_repository,
+        options=response_options(),
     )
 
 
-async def get_response_speech_use_case(
-    request: Request,
-    session: AsyncSession = Depends(get_db_session),
-) -> ResponseSpeechUseCase:
-    container = container_from(request)
+def build_response_speech_use_case(container: AppContainer, session: AsyncSession) -> ResponseSpeechUseCase:
     return ResponseSpeechUseCase(
         conversation_repo=ConversationRepository(session),
         message_repo=MessageRepository(session),
@@ -245,7 +251,15 @@ async def get_response_speech_use_case(
         tts_service=container.tts_service,
         stt_service=container.stt_service,
         prompt_repo=container.prompt_repository,
+        options=response_options(),
     )
+
+
+def require_response_services(request: Request) -> AppContainer:
+    container = container_from(request)
+    if container.agent_service is None or container.db_connection is None:
+        raise ServiceUnavailableException("Response services are not available.")
+    return container
 
 
 # --- Conversation use case factories ---
@@ -376,7 +390,7 @@ def get_match_face_use_case(request: Request) -> MatchFaceUseCase:
     container = container_from(request)
     if not container.face_service:
         raise ServiceUnavailableException("Face service is not available")
-    return MatchFaceUseCase(container.face_service)
+    return MatchFaceUseCase(container.face_service, settings.face_match_min_threshold)
 
 
 def get_list_faces_use_case(request: Request) -> ListFacesUseCase:

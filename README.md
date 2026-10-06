@@ -2,11 +2,12 @@
 
 Backend API untuk sistem Luna (Linked Unified Neural Assistant) dengan fitur:
 
-- **Emotion Detection** — Deteksi emosi dari video frame
-- **Face Recognition** — Pengenalan wajah pengguna
-- **Agent RAG** — Agent dengan knowledge base
+- **Face Recognition** — Pendaftaran wajah dan indeks pencocokan (deteksi wajah live dan emosi berjalan di kiosk, luna-edge)
+- **Agent RAG** — Agent dengan knowledge base dan web search
+- **Turn WebSocket** — `/turn/stream`, satu giliran bicara dari kiosk dijawab dengan transkrip, token, dan audio
 - **TTS** — Text-to-Speech
 - **STT** — Speech-to-Text
+- **Photobooth** — Penyimpanan foto dari kiosk di MinIO
 
 Dibangun dengan **Clean Architecture**.
 
@@ -18,10 +19,11 @@ Dibangun dengan **Clean Architecture**.
 - **Database:** PostgreSQL, SQLAlchemy 2, Alembic
 - **Vector DB:** Qdrant
 - **RAG & Agent:** LlamaIndex, LangChain, Ollama
+- **Web search:** Exa
 - **Object Storage:** MinIO
-- **Face:** InsightFace
-- **STT:** Faster-Whisper
-- **TTS**: MMS
+- **Face:** OpenCV YuNet + SFace
+- **STT:** Deepgram (nova-3)
+- **TTS**: Cartesia (MMS, Chatterbox, F5-TTS tersedia lewat `TTS_PROVIDER`)
 - **Container:** Docker, Docker Compose
 
 ---
@@ -37,32 +39,32 @@ luna-api/
 ├── src/
 │   ├── config.py
 │   ├── domain/
-│   │   └── entities/          # conversation, face, file, response, vision
-│   ├── ports/                 # repositories, services, vision
+│   │   └── entities/          # conversation, face, file, photo, response, vision
+│   ├── ports/                 # identifiers, prompts, repositories, services, vision
 │   ├── adapters/
 │   │   ├── agent/
 │   │   ├── persistence/       # database, models, repositories, mappers
 │   │   ├── rag/
 │   │   ├── speech/            # STT, TTS
 │   │   ├── storage/           # MinIO
-│   │   └── vision/            # face store, recognition, tracker, emotion
-│   ├── use_cases/             # response, conversation, file, face
+│   │   └── vision/            # face store, recognition (YuNet), SFace embedder
+│   ├── use_cases/             # response, conversation, file, face, photo
 │   ├── drivers/
 │   │   ├── main.py            # FastAPI app & lifespan
 │   │   ├── dependencies.py
 │   │   ├── rest/              # routers, schemas
-│   │   └── realtime/          # WebSocket routers (e.g. vision)
-│   ├── seed/                  # face_seeder, rag_seeder, __main__
+│   │   └── realtime/          # WebSocket router /turn/stream
+│   ├── seeder/                # face_seeder, rag_seeder, __main__
 │   ├── shared/                # constants, exceptions, utils
 │   └── prompts/
-├── storage/                   # faces, rag (isi di-ignore; folder tetap via .gitkeep)
-├── tests/
+├── storage/                   # faces, rag, models (di-ignore git)
+├── tests/unit/
 ├── requirements/              # base.txt, cpu.txt, gpu.txt
 ├── docker-compose.yml
+├── docker-compose.gpu.yml
 ├── Dockerfile.cpu
 ├── Dockerfile.gpu
 ├── alembic.ini
-├── .env.example
 └── README.md
 ```
 
@@ -75,7 +77,7 @@ luna-api/
 | ------------- | ---------------- | -------------------------------------------------------------------------------- |
 | **Domain**    | `src/domain/`    | Entitas bisnis dan tipe data inti; bebas dari framework dan infra.               |
 | **Ports**     | `src/ports/`     | Interface (repository, service, vision) yang mendefinisikan kontrak antar layer. |
-| **Adapters**  | `src/adapters/`  | Implementasi konkret dari ports (DB, Qdrant, MinIO, Ollama, InsightFace, dll).   |
+| **Adapters**  | `src/adapters/`  | Implementasi konkret dari ports (DB, Qdrant, MinIO, Ollama, OpenCV, dll).        |
 | **Use cases** | `src/use_cases/` | Orkestrasi logika bisnis yang memakai ports.                                     |
 | **Drivers**   | `src/drivers/`   | Entry point aplikasi: HTTP (REST), WebSocket, dan dependency injection.          |
 
@@ -96,16 +98,11 @@ git clone <repository-url>
 cd luna-api
 ```
 
-### 2. Environment
+### 2. Konfigurasi
 
-```bash
-cp .env.example .env
-# Sesuaikan .env (database, MinIO, Ollama, dll.)
-```
+Konfigurasi ada di blok `environment` pada `docker-compose.yml` (database, MinIO, Ollama, dll.). API key dan `API_ACCESS_TOKEN` ada di `.env` (salin dari `.env.example`), bukan di compose.
 
 ### 3. Jalankan dengan Docker Compose
-
-#### Standard (Windows & Linux native ext4/xfs):
 
 **CPU:**
 
@@ -118,24 +115,6 @@ docker compose up --build -d
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
 ```
-
-#### FUSE-based Linux systems (e.g., `/mnt/adata`, WSL2):
-
-If PostgreSQL fails with `wrong ownership` error, use the FUSE workaround:
-
-**CPU:**
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.fuse.yml up --build -d
-```
-
-**GPU:**
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.fuse.yml up --build -d
-```
-
-> **Note:** `docker-compose.fuse.yml` uses `tmpfs` for PostgreSQL data. Data does **not** persist across container restarts but avoids ownership errors on FUSE mounts.
 
 ---
 

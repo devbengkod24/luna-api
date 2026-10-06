@@ -432,13 +432,15 @@ def _expand_time(text: str) -> str:
         _pukul, text, flags=re.IGNORECASE,
     )
 
-    # "jam HH:MM" — expand digits but keep "jam" from the input (no double)
-    def _jam_colon(m: re.Match) -> str:
+    # "jam HH:MM" / "jam HH.MM" — expand digits but keep "jam" from the input.
+    # The dot form used to fall through to the bare-dot rule below, which adds
+    # its own "jam": "jam 13.00" was spoken "jam jam tiga belas".
+    def _jam_clock(m: re.Match) -> str:
         return f"jam {_render(int(m.group(1)), int(m.group(2)))}"
 
     text = re.sub(
-        r"\bjam\s+([01]?\d|2[0-3]):([0-5]\d)\b",
-        _jam_colon, text,
+        r"\bjam\s+([01]?\d|2[0-3])[.:]([0-5]\d)\b",
+        _jam_clock, text, flags=re.IGNORECASE,
     )
 
     # Standalone HH:MM (colon is unambiguous — add "jam" prefix)
@@ -450,12 +452,14 @@ def _expand_time(text: str) -> str:
         _colon_time, text,
     )
 
-    # HH.MM with dot: only expand when clearly time (not inside a larger number).
+    # Bare HH.MM with a dot: a time only with a two-digit hour (08.30, 13.00).
+    # A one-digit hour is how a decimal is written — "IPK 3.25", "nilai 2.75"
+    # — and reading those as "jam tiga dua puluh lima" was wrong out loud.
     def _dot_time(m: re.Match) -> str:
         return f"jam {_render(int(m.group(1)), int(m.group(2)))}"
 
     text = re.sub(
-        r"(?<!\d)\b([01]?\d|2[0-3])\.([0-5]\d)\b(?!\d)",
+        r"(?<![\d.,])\b([01]\d|2[0-3])\.([0-5]\d)\b(?![\d.,]\d)",
         _dot_time, text,
     )
     return text
@@ -484,20 +488,29 @@ def _expand_roman(text: str) -> str:
     )
 
 
-def _expand_numbers(text: str) -> str:
-    # Currency: Rp 25.000 -> "dua puluh lima ribu rupiah".
-    def _currency(m: re.Match) -> str:
-        digits = m.group(1).replace(".", "").replace(",", "")
-        try:
-            return f"{_spell_number(int(digits))} rupiah"
-        except ValueError:
-            return m.group(0)
+# A number: digits, optionally joined by single dots or commas. Never a trailing
+# dot or comma — that is the sentence's punctuation, and consuming it silently
+# dropped the full stop after every sentence that ended in a number.
+_NUMBER = r"\d+(?:[.,]\d+)*"
+_MAGNITUDE = r"ribu|juta|miliar|milyar|triliun"
 
-    text = re.sub(r"\bRp\.?\s?(\d[\d.,]*)", _currency, text, flags=re.IGNORECASE)
+
+def _expand_numbers(text: str) -> str:
+    # Currency: Rp 25.000 -> "dua puluh lima ribu rupiah"; Rp 12,5 juta -> "dua
+    # belas koma lima juta rupiah". The magnitude belongs before "rupiah".
+    def _currency(m: re.Match) -> str:
+        amount = _expand_number_token(m.group(1))
+        magnitude = f" {m.group(2).lower()}" if m.group(2) else ""
+        return f"{amount}{magnitude} rupiah"
+
+    text = re.sub(
+        rf"\bRp\.?\s?({_NUMBER})(?:\s+({_MAGNITUDE})\b)?",
+        _currency, text, flags=re.IGNORECASE,
+    )
 
     # Percent: 10% / 10,5% -> "sepuluh persen".
     text = re.sub(
-        r"(\d[\d.,]*)\s*%",
+        rf"({_NUMBER})\s*%",
         lambda m: f"{_expand_number_token(m.group(1))} persen",
         text,
     )
@@ -524,32 +537,42 @@ def _expand_numbers(text: str) -> str:
     )
 
     # Remaining standalone numbers.
-    text = re.sub(r"\d[\d.,]*", lambda m: _expand_number_token(m.group(0)), text)
+    text = re.sub(_NUMBER, lambda m: _expand_number_token(m.group(0)), text)
     return text
+
+
+# Dots as thousands separators: every group after the first is exactly three
+# digits (1.500, 7.500.000). Anything else with a single dot is a decimal the
+# model wrote the English way (3.25), and is read as one.
+_THOUSANDS = re.compile(r"\d{1,3}(?:\.\d{3})+")
+_DOT_DECIMAL = re.compile(r"(\d+)\.(\d+)")
+
+
+def _spell_decimal(whole: str, frac: str) -> str:
+    words = _spell_number(int(whole)) if whole else "nol"
+    digits = " ".join(_spell_number(int(d)) for d in frac if d.isdigit())
+    return f"{words} koma {digits}".strip()
 
 
 def _expand_number_token(token: str) -> str:
     token = token.strip().strip(".,")
     if not token:
         return token
-    # Decimal (Indonesian comma): 3,14 -> "tiga koma satu empat".
-    if "," in token:
-        whole, _, frac = token.partition(",")
-        whole = whole.replace(".", "")
-        try:
-            words = _spell_number(int(whole)) if whole else "nol"
-        except ValueError:
-            return token
-        digits = " ".join(_spell_number(int(d)) for d in frac if d.isdigit())
-        return f"{words} koma {digits}".strip()
-    # Integer with optional dot thousands separators.
-    cleaned = token.replace(".", "")
-    if not cleaned.isdigit():
-        return token
     try:
-        return _spell_number(int(cleaned))
+        # Decimal (Indonesian comma): 3,14 -> "tiga koma satu empat".
+        if "," in token:
+            whole, _, frac = token.partition(",")
+            return _spell_decimal(whole.replace(".", ""), frac)
+        if _THOUSANDS.fullmatch(token):
+            return _spell_number(int(token.replace(".", "")))
+        decimal = _DOT_DECIMAL.fullmatch(token)
+        if decimal:
+            return _spell_decimal(decimal.group(1), decimal.group(2))
+        if token.isdigit():
+            return _spell_number(int(token))
     except ValueError:
-        return token
+        pass
+    return token
 
 
 def _expand_symbols(text: str) -> str:

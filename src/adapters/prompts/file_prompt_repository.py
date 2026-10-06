@@ -4,8 +4,11 @@ Loads templates once at startup and renders them with the per-request context.
 """
 
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
+
+from src.adapters.agent.input_guard import is_harmful, is_jailbreak
 from src.config import settings
 from src.domain.entities import UserContext
 from src.ports.prompts import IPromptRepository
@@ -13,10 +16,30 @@ from src.shared.constants import Character
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TTS_FALLBACK = (
-    "Rewrite the text into concise, natural Indonesian that is easy to read "
-    "aloud by a TTS model. Preserve meaning and output only the speakable text."
-)
+# Longest a context value may be once it is in the prompt. The REST schema
+# caps them too, but the kiosk path does not go through that schema.
+_CONTEXT_LIMITS = {"name": 100, "nim": 20, "emotion": 20}
+
+
+def _context_value(value: str | None, field: str) -> str | None:
+    """A context field fit to sit inside the system prompt as data.
+
+    The name, NIM and emotion come from outside — the kiosk, or any REST caller —
+    and are placed in the system prompt, above the policy the model follows. A
+    value with line breaks can start a new "section" of that prompt, and the
+    input guard only ever looked at the question. So: one line, no control
+    characters, bounded, and dropped entirely if it reads as an instruction.
+    """
+    if not value:
+        return None
+    single_line = re.sub(r"\s+", " ", "".join(ch for ch in str(value) if ch.isprintable() or ch.isspace()))
+    cleaned = single_line.strip()[: _CONTEXT_LIMITS[field]]
+    if not cleaned or is_jailbreak(cleaned) or is_harmful(cleaned):
+        if cleaned:
+            logger.warning("Dropped a %s from the user context that read as an instruction", field)
+        return None
+    return cleaned
+
 
 class FilePromptRepository(IPromptRepository):
 
@@ -30,9 +53,9 @@ class FilePromptRepository(IPromptRepository):
             templates = _load_prompt_templates(self.base_path)
             char_content = templates.get(character.slug, "")
 
-            name = getattr(context, "name", None) or "Unknown"
-            nim = getattr(context, "nim", None) or "Unknown"
-            emotion = getattr(context, "emotion", None) or "neutral"
+            name = _context_value(getattr(context, "name", None), "name") or "Unknown"
+            nim = _context_value(getattr(context, "nim", None), "nim") or "Unknown"
+            emotion = _context_value(getattr(context, "emotion", None), "emotion") or "neutral"
 
             # The tool policy has to match the tools actually registered on the
             # agent — naming rag_search in the prompt while the tool is absent
@@ -51,16 +74,6 @@ class FilePromptRepository(IPromptRepository):
         except Exception:
             logger.exception("Failed to load system prompt templates")
             return "You are a helpful AI assistant."
-
-    def get_tts_system_prompt(self) -> str:
-        path = Path(self.base_path) / "text-to-speech.txt"
-        try:
-            prompt = path.read_text(encoding="utf-8").strip()
-            if prompt:
-                return prompt
-        except Exception:
-            logger.exception("Failed to load TTS system prompt")
-        return _DEFAULT_TTS_FALLBACK
 
 
 @lru_cache(maxsize=None)

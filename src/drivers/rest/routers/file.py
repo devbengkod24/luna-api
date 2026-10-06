@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from src.config import settings
 from src.drivers import dependencies
 from src.drivers.rest.schemas.file_schemas import (
     FileResponse,
@@ -44,7 +45,9 @@ async def upload_file(
 ):
     """Upload file to MinIO and record metadata. File is NOT yet vectorized."""
     try:
-        file_content = await file.read()
+        # One byte past the limit is enough to know it is over, and stops an
+        # oversized upload being read whole into memory just to be refused.
+        file_content = await file.read(settings.rag_max_file_size + 1)
     except Exception as e:
         raise HTTPException(status_code=400, detail="Error reading file") from e
 

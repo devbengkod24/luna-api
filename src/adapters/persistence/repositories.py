@@ -17,8 +17,10 @@ class ConversationRepository(IConversationRepository):
     async def create(self, conversation: Conversation) -> Conversation:
         model = ConversationMapper.to_model(conversation)
         self.session.add(model)
+        # No refresh: the models fetch their server defaults eagerly, with the
+        # INSERT. A refresh was one more round trip for every message a turn
+        # writes, before the model could be called.
         await self.session.flush()
-        await self.session.refresh(model)
         return ConversationMapper.to_entity(model)
 
     async def get_by_id(self, id: str) -> Conversation | None:
@@ -94,8 +96,10 @@ class MessageRepository(IMessageRepository):
     async def create(self, message: Message) -> Message:
         model = MessageMapper.to_model(message)
         self.session.add(model)
+        # No refresh: the models fetch their server defaults eagerly, with the
+        # INSERT. A refresh was one more round trip for every message a turn
+        # writes, before the model could be called.
         await self.session.flush()
-        await self.session.refresh(model)
         return MessageMapper.to_entity(model)
 
     async def get_by_id(self, id: str) -> Message | None:
@@ -176,8 +180,10 @@ class FileRepository(IFileRepository):
     async def create(self, file: File) -> File:
         model = FileMapper.to_model(file)
         self.session.add(model)
+        # No refresh: the models fetch their server defaults eagerly, with the
+        # INSERT. A refresh was one more round trip for every message a turn
+        # writes, before the model could be called.
         await self.session.flush()
-        await self.session.refresh(model)
         return FileMapper.to_entity(model)
 
     async def get_by_id(self, id: str) -> File | None:

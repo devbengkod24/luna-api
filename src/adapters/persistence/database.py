@@ -1,5 +1,6 @@
 """Database connection management."""
-from typing import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import AsyncAdaptedQueuePool
@@ -43,16 +44,23 @@ class DatabaseConnection:
             await conn.run_sync(Base.metadata.drop_all)
 
     async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
-        """Get async database session.
+        """Get async database session (the FastAPI dependency form).
 
         Yields:
             AsyncSession: SQLAlchemy async session
         """
+        async with self.session() as session:
+            yield session
+
+    @asynccontextmanager
+    async def session(self) -> AsyncIterator[AsyncSession]:
+        """A session that commits when the block exits cleanly and rolls back
+        when it raises — including when the block is cancelled."""
         async with self.async_session_maker() as session:
             try:
                 yield session
                 await session.commit()
-            except Exception:
+            except BaseException:
                 await session.rollback()
                 raise
 

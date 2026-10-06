@@ -21,6 +21,9 @@ from src.ports.services import (
 )
 from src.ports.vision import IFaceDetector
 from src.shared.constants import Character
+from src.use_cases.response_use_case import ResponseOptions
+
+RESPONSE_OPTIONS = ResponseOptions(history_limit=20, agent_idle_timeout_s=45.0, timezone="Asia/Jakarta")
 
 
 class FakeConversationRepo(IConversationRepository):
@@ -243,23 +246,12 @@ class FakePromptRepository(IPromptRepository):
     def get_system_prompt(self, character: Character, context=None) -> str:
         return f"system-prompt({character.name})"
 
-    def get_tts_system_prompt(self) -> str:
-        return "tts-system-prompt"
-
-    def build_title_prompt(self, user_input: str) -> str:
-        return f"title-prompt({user_input})"
-
 
 class FakeAgentService(IAgentService):
     """Scriptable agent — yields the events you provide on each call."""
 
-    def __init__(
-        self,
-        events: List[StreamEvent] | None = None,
-        title: str = "Generated Title",
-    ):
+    def __init__(self, events: List[StreamEvent] | None = None):
         self.events = events or []
-        self.title = title
         self.received_messages: List[Message] = []
         self.received_input: Optional[str] = None
 
@@ -270,12 +262,6 @@ class FakeAgentService(IAgentService):
         self.received_messages = list(messages)
         for event in self.events:
             yield event
-
-    async def generate_title(self, title_prompt: str) -> str:
-        return self.title
-
-    async def preprocess_tts(self, text: str, system_prompt: str) -> str:
-        return text
 
 
 class FakeTtsService(ITTSService):

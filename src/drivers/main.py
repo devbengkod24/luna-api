@@ -4,7 +4,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
@@ -12,12 +12,14 @@ from starlette.responses import Response
 
 from src.config import settings
 from src.drivers import dependencies
+from src.drivers.middleware import BodySizeLimitMiddleware
 from src.drivers.realtime.routers import turn
 from src.drivers.rest.routers import conversation
 from src.drivers.rest.routers import face
 from src.drivers.rest.routers import file as file_router
 from src.drivers.rest.routers import photo
 from src.drivers.rest.routers import response
+from src.drivers.security import require_api_token, warn_if_open
 from src.shared.exceptions import LunaException
 
 logger = logging.getLogger(__name__)
@@ -33,10 +35,6 @@ _NOISY_LOGGERS = (
     "fsspec",
     "PIL",
     "asyncio",
-    # Dumps the full Colang event object for every guardrail check — several
-    # hundred characters per request, and ~50 lines of action registration at
-    # startup. Nothing actionable at INFO.
-    "nemoguardrails",
 )
 
 
@@ -72,6 +70,7 @@ configure_logging()
 async def lifespan(app: FastAPI):
     """Build the application container and run async initializers."""
     logger.info("Starting up...")
+    warn_if_open()
 
     try:
         container = dependencies.initialize_container()
@@ -100,6 +99,9 @@ async def lifespan(app: FastAPI):
                 await container.rag_service.close()
             if container.face_service:
                 await container.face_service.close()
+            close_stt = getattr(container.stt_service, "close", None)
+            if close_stt is not None:
+                await close_stt()
     except Exception as e:
         logger.error("Error during shutdown: %s", e, exc_info=True)
 
@@ -150,11 +152,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(response.router, prefix=settings.api_v1_prefix)
-app.include_router(conversation.router, prefix=settings.api_v1_prefix)
-app.include_router(file_router.router, prefix=settings.api_v1_prefix)
-app.include_router(face.router, prefix=settings.api_v1_prefix)
-app.include_router(photo.router, prefix=settings.api_v1_prefix)
+# Outermost, so an oversized body is refused before CORS, routing or parsing.
+app.add_middleware(BodySizeLimitMiddleware)
+
+# Every REST route needs the API token (when one is set). The turn socket checks
+# it itself, before accepting: a WebSocket refused by a dependency would be
+# accepted and closed instead, which a kiosk reads as the cloud being down.
+_guarded = [Depends(require_api_token)]
+for router in (response.router, conversation.router, file_router.router, face.router, photo.router):
+    app.include_router(router, prefix=settings.api_v1_prefix, dependencies=_guarded)
 app.include_router(turn.router, prefix=settings.api_v1_prefix)
 
 

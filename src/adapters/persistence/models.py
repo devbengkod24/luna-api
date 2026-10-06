@@ -13,6 +13,9 @@ class ConversationModel(Base):
     """Conversation model - stores conversation sessions."""
     
     __tablename__ = "conversations"
+    # Server defaults (created_at, updated_at) come back with the INSERT itself,
+    # via RETURNING, instead of a SELECT per row after it.
+    __mapper_args__ = {"eager_defaults": True}
     
     id: Mapped[uuid7] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -28,6 +31,7 @@ class MessageModel(Base):
     """Message model - stores individual messages in a chat session."""
     
     __tablename__ = "messages"
+    __mapper_args__ = {"eager_defaults": True}
     
     id: Mapped[uuid7] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     conversation_id: Mapped[uuid7] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
@@ -43,6 +47,7 @@ class FileModel(Base):
     """File ORM model."""
 
     __tablename__ = "files"
+    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[uuid7] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid7)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)

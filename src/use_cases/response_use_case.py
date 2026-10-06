@@ -3,11 +3,11 @@
 import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import AsyncGenerator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from src.config import settings
 from src.domain.entities import (
     Conversation,
     Message,
@@ -34,7 +34,20 @@ from src.shared.constants import Character
 logger = logging.getLogger(__name__)
 
 
-def _new_conversation_title() -> str:
+@dataclass(frozen=True)
+class ResponseOptions:
+    """The knobs a reply runs under, handed in by the composition root.
+
+    Passed rather than read from `src.config`, so the use case depends on the
+    values and not on where they are configured.
+    """
+
+    history_limit: int
+    agent_idle_timeout_s: float
+    timezone: str
+
+
+def _new_conversation_title(timezone: str) -> str:
     """Title for a fresh conversation: the local wall-clock time it started.
 
     Replaces an LLM-generated title, which cost an extra cloud round-trip per
@@ -44,28 +57,20 @@ def _new_conversation_title() -> str:
     computed inline and committed with the request, so it always lands.
     """
     try:
-        now = datetime.now(ZoneInfo(settings.app_timezone))
+        now = datetime.now(ZoneInfo(timezone))
     except (ZoneInfoNotFoundError, ValueError):
         logger.warning(
-            "Unknown APP_TIMEZONE %r — falling back to UTC for conversation titles",
-            settings.app_timezone,
+            "Unknown timezone %r — falling back to UTC for conversation titles", timezone
         )
         now = datetime.now(ZoneInfo("UTC"))
     return now.strftime("%Y-%m-%d %H:%M:%S")
 
 
 class SynthesizeTtsUseCase:
-    """Preprocess assistant text and synthesize speech via TTS."""
+    """Synthesize one sentence of the reply."""
 
-    def __init__(
-        self,
-        agent_service: IAgentService,
-        tts_service: ITTSService,
-        prompt_repo: IPromptRepository,
-    ):
-        self.agent_service = agent_service
+    def __init__(self, tts_service: ITTSService):
         self.tts_service = tts_service
-        self.prompt_repo = prompt_repo
 
     async def stream_chunk(
         self, text: str, character: Character
@@ -85,7 +90,7 @@ class SynthesizeTtsUseCase:
             async for pcm in self.tts_service.synthesize_stream(text, character):
                 yield AudioChunkEvent(
                     content=_b64.b64encode(pcm).decode(),
-                    sample_rate=getattr(self.tts_service, "sample_rate", 22050),
+                    sample_rate=self.tts_service.sample_rate,
                 )
         else:
             audio_b64 = await self.tts_service.synthesize(text, character)
@@ -101,14 +106,16 @@ class ResponseTextUseCase:
         conversation_repo: IConversationRepository,
         message_repo: IMessageRepository,
         agent_service: IAgentService,
-        tts_service: ITTSService,
+        tts_service: ITTSService | None,
         prompt_repo: IPromptRepository,
+        options: ResponseOptions,
     ):
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
         self.agent_service = agent_service
         self.prompt_repo = prompt_repo
-        self.tts_use_case = SynthesizeTtsUseCase(agent_service, tts_service, prompt_repo)
+        self.options = options
+        self.tts_use_case = SynthesizeTtsUseCase(tts_service) if tts_service else None
 
     async def execute(
         self,
@@ -128,7 +135,8 @@ class ResponseTextUseCase:
             user_input=user_input,
             character=character,
             context=context,
-            enable_tts=enable_tts,
+            enable_tts=enable_tts and self.tts_use_case is not None,
+            options=self.options,
         ):
             yield event
 
@@ -141,16 +149,18 @@ class ResponseSpeechUseCase:
         conversation_repo: IConversationRepository,
         message_repo: IMessageRepository,
         agent_service: IAgentService,
-        tts_service: ITTSService,
+        tts_service: ITTSService | None,
         stt_service: ISTTService,
         prompt_repo: IPromptRepository,
+        options: ResponseOptions,
     ):
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
         self.agent_service = agent_service
         self.stt_service = stt_service
         self.prompt_repo = prompt_repo
-        self.tts_use_case = SynthesizeTtsUseCase(agent_service, tts_service, prompt_repo)
+        self.options = options
+        self.tts_use_case = SynthesizeTtsUseCase(tts_service) if tts_service else None
 
     async def execute(
         self,
@@ -161,7 +171,22 @@ class ResponseSpeechUseCase:
         enable_tts: bool = True,
     ) -> AsyncGenerator[StreamEvent, None]:
         yield LogEvent(content="Mentranskripsi speech...")
-        transcript = await self.stt_service.transcribe(speech_base64)
+        try:
+            transcript = await self.stt_service.transcribe(speech_base64)
+        except ValueError:
+            # Unreadable audio: the client's to fix, and not a server error.
+            yield ErrorEvent(content="Audio tidak valid")
+            return
+        except Exception:
+            # Raised out of the stream, this used to cut the SSE response off
+            # mid-way with no event at all; the page waited for a reply that
+            # had already failed.
+            logger.exception("Transcription failed")
+            yield ErrorEvent(content="Transkripsi gagal")
+            return
+        if not transcript or not transcript.strip():
+            yield ErrorEvent(content="Tidak ada suara yang terdengar")
+            return
         yield TranscriptEvent(content=transcript)
 
         async for event in _stream_conversation(
@@ -174,13 +199,26 @@ class ResponseSpeechUseCase:
             user_input=transcript,
             character=character,
             context=context,
-            enable_tts=enable_tts,
+            enable_tts=enable_tts and self.tts_use_case is not None,
+            options=self.options,
         ):
             yield event
 
 
-# Sentence-boundary matcher: a run of non-terminators ending in ., !, ?, or \n.
-_SENTENCE_RE = re.compile(r"[^.!?\n]*[.!?\n]+")
+# A run of sentence punctuation.
+_TERMINATORS = re.compile(r"[.!?\n]+")
+# The word just before a dot, to tell "Prof." from the end of a sentence.
+_LAST_WORD = re.compile(r"(\w+)$")
+# Words a dot follows without ending the sentence: titles before a name, and
+# the abbreviations that sit mid-sentence. Cutting at them split one name into
+# three TTS requests with a pause in each gap. Deliberately not "dll."/"dsb.",
+# which end sentences as often as not.
+_NO_BREAK_AFTER = frozenset({
+    "prof", "dr", "drs", "dra", "ir", "h", "hj", "st", "sh", "se", "si", "mm",
+    "mt", "mkom", "kom", "pd", "ag", "psi", "ked", "sp", "no", "nomor", "jl",
+    "jln", "telp", "tel", "hlm", "yth", "sdr", "sdri", "bpk", "kel", "kec",
+    "kab", "prov", "mr", "mrs", "ms", "vs", "ph", "phd",
+})
 # Force-flush a terminator-free buffer this long so a monologue still starts
 # speaking instead of stalling.
 _TTS_FORCE_FLUSH_CHARS = 220
@@ -191,20 +229,45 @@ def _drain_sentences(buffer: str) -> tuple[list[str], str]:
 
     Returns (complete_sentences, remainder). The remainder is the trailing
     partial sentence still being streamed; the caller keeps accumulating into it.
+
+    A `.`, `!` or `?` ends a sentence only when WHITESPACE follows it, so the
+    decision waits for the next character. Cutting at any dot, as this did,
+    split "Rp 7.500.000" into "Rp 7." / "500." / "000" — which the normalizer
+    then read, correctly for each fragment, as "tujuh rupiah / lima ratus / nol"
+    — and "dinus.ac.id", "3.25" and "Prof. Dr." the same way. A newline always
+    ends one.
     """
     sentences: list[str] = []
-    cut = 0
-    for match in _SENTENCE_RE.finditer(buffer):
-        chunk = match.group(0).strip()
+    start = 0
+    for match in _TERMINATORS.finditer(buffer):
+        end = match.end()
+        run = match.group(0)
+        if "\n" not in run:
+            if end >= len(buffer):
+                break  # the next token decides
+            if not buffer[end].isspace():
+                continue  # 7.500, dinus.ac.id, 3.25
+            if set(run) == {"."}:
+                word = _LAST_WORD.search(buffer[start:match.start()])
+                if word and (
+                    word.group(1).lower() in _NO_BREAK_AFTER
+                    or (len(word.group(1)) == 1 and word.group(1).isalpha())
+                ):
+                    continue  # Prof. Dr. Pulung, A. Rahman
+        chunk = buffer[start:end].strip()
         if chunk:
             sentences.append(chunk)
-        cut = match.end()
-    remainder = buffer[cut:]
+        start = end
+    remainder = buffer[start:]
     if len(remainder) >= _TTS_FORCE_FLUSH_CHARS:
-        tail = remainder.strip()
-        if tail:
-            sentences.append(tail)
-        remainder = ""
+        # At the last space, never inside a word or a number.
+        cut = remainder.rstrip().rfind(" ")
+        if cut <= 0:
+            cut = len(remainder)
+        head = remainder[:cut].strip()
+        if head:
+            sentences.append(head)
+        remainder = remainder[cut:]
     return sentences, remainder
 
 
@@ -213,13 +276,14 @@ async def _stream_conversation(
     conversation_repo: IConversationRepository,
     message_repo: IMessageRepository,
     agent_service: IAgentService,
-    tts_use_case: SynthesizeTtsUseCase,
+    tts_use_case: SynthesizeTtsUseCase | None,
     prompt_repo: IPromptRepository,
     conversation_id: str | None,
     user_input: str,
     character: Character,
     context: UserContext | None,
     enable_tts: bool,
+    options: ResponseOptions,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Core streaming logic shared by text and speech use cases.
 
@@ -230,7 +294,7 @@ async def _stream_conversation(
     written — the dominant latency win over synthesizing the whole reply at the
     end. Both the voice WS and chat SSE paths flow through here.
     """
-    conversation = await _resolve_conversation(conversation_repo, conversation_id)
+    conversation = await _resolve_conversation(conversation_repo, conversation_id, options.timezone)
     if conversation is None:
         yield ErrorEvent(content="Conversation not found")
         return
@@ -243,7 +307,7 @@ async def _stream_conversation(
 
     yield LogEvent(content="Menganalisis konteks...")
     history = await message_repo.get_recent_by_conversation_id(
-        conversation.id, settings.chat_history_limit
+        conversation.id, options.history_limit
     )
 
     # Persist current user message AFTER loading history to avoid duplicating
@@ -293,7 +357,7 @@ async def _stream_conversation(
             )
             while True:
                 try:
-                    async with asyncio.timeout(settings.agent_idle_timeout_seconds):
+                    async with asyncio.timeout(options.agent_idle_timeout_s):
                         event = await anext(gen)
                 except StopAsyncIteration:
                     break
@@ -376,11 +440,11 @@ async def _stream_conversation(
 
 
 async def _resolve_conversation(
-    repo: IConversationRepository, conversation_id: str | None
+    repo: IConversationRepository, conversation_id: str | None, timezone: str
 ) -> Conversation | None:
     if conversation_id:
         return await repo.get_by_id(conversation_id)
-    return await repo.create(Conversation(title=_new_conversation_title()))
+    return await repo.create(Conversation(title=_new_conversation_title(timezone)))
 
 
 def _tool_event_to_message_body(event: ToolResultEvent):

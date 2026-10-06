@@ -5,6 +5,8 @@ import io
 import logging
 import wave
 
+import httpx
+
 from src.config import settings
 from src.ports.services import ISTTService
 
@@ -14,8 +16,7 @@ logger = logging.getLogger(__name__)
 class DeepgramSTTService(ISTTService):
     """STT adapter using Deepgram prerecorded transcription (`/v1/listen`).
 
-    Set STT_PROVIDER=deepgram and DEEPGRAM_API_KEY to activate; WhisperSTTService
-    stays available under STT_PROVIDER=whisper.
+    The only STT adapter on this branch; exp/edge carries local Whisper instead.
 
     Uses the REST (prerecorded) endpoint rather than the streaming WebSocket
     because the kiosk owns turn detection: `/turn/stream` receives one turn the
@@ -31,12 +32,14 @@ class DeepgramSTTService(ISTTService):
         language: str | None = None,
         smart_format: bool | None = None,
         timeout_seconds: int | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("DeepgramSTTService requires an API key.")
 
         # Imported lazily so the adapter package stays importable without
-        # deepgram-sdk installed when STT_PROVIDER=whisper.
+        # deepgram-sdk (unit tests, the seeder); a missing SDK then surfaces in
+        # _build_stt's log instead of failing the whole app at import.
         from deepgram import AsyncDeepgramClient
 
         self.model = model or settings.deepgram_model
@@ -46,7 +49,14 @@ class DeepgramSTTService(ISTTService):
         )
         self.timeout_seconds = timeout_seconds or settings.deepgram_timeout_seconds
 
-        self._client = AsyncDeepgramClient(api_key=api_key)
+        # Our own client, handed to the SDK, so `keep_warm` touches exactly the
+        # connection pool transcription will draw from.
+        self._http = http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
+        self._client = AsyncDeepgramClient(api_key=api_key, httpx_client=self._http)
+        try:
+            self._base_url = self._client._client_wrapper.get_environment().base
+        except Exception:
+            self._base_url = "https://api.deepgram.com"
         logger.info(
             "STT initialized: provider=deepgram model=%s language=%s smart_format=%s",
             self.model, self.language, self.smart_format,
@@ -95,6 +105,23 @@ class DeepgramSTTService(ISTTService):
             request_options={"timeout_in_seconds": self.timeout_seconds},
         )
         return self._extract_transcript(response)
+
+    async def keep_warm(self) -> None:
+        """Touch Deepgram so the pooled connection is still open at turn_end.
+
+        Deepgram closes a connection idle for about five seconds, and the gap
+        between one turn's transcription and the next is always longer, so each
+        turn paid a fresh TLS handshake: 1440 ms cold against ~910 ms warm for
+        2.5 s of audio, measured. An unauthenticated GET is refused for free
+        and leaves the connection open.
+        """
+        try:
+            await self._http.get(self._base_url, timeout=3.0)
+        except Exception as e:
+            logger.debug("Deepgram keep-warm failed (%s)", e)
+
+    async def close(self) -> None:
+        await self._http.aclose()
 
     async def transcribe(self, speech_base64: str) -> str:
         try:

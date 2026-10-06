@@ -19,10 +19,12 @@ from src.shared.constants import Character
 from src.use_cases.response_use_case import ResponseTextUseCase
 
 from .fakes import (
+    RESPONSE_OPTIONS,
     FakeAgentService,
     FakeConversationRepo,
     FakeMessageRepo,
     FakePromptRepository,
+    FakeSttService,
     FakeTtsService,
 )
 
@@ -54,6 +56,7 @@ async def test_response_text_emits_done_and_persists_messages():
         agent_service=agent,
         tts_service=tts,
         prompt_repo=FakePromptRepository(),
+        options=RESPONSE_OPTIONS,
     )
 
     events = []
@@ -86,6 +89,7 @@ async def test_response_text_emits_error_for_unknown_conversation():
         agent_service=FakeAgentService(events=[]),
         tts_service=FakeTtsService(),
         prompt_repo=FakePromptRepository(),
+        options=RESPONSE_OPTIONS,
     )
 
     events = []
@@ -114,6 +118,7 @@ async def test_response_text_passes_domain_messages_to_agent():
         agent_service=agent,
         tts_service=FakeTtsService(),
         prompt_repo=FakePromptRepository(),
+        options=RESPONSE_OPTIONS,
     )
 
     async for _ in use_case.execute(
@@ -129,3 +134,57 @@ async def test_response_text_passes_domain_messages_to_agent():
     assert isinstance(agent.received_messages, list)
     for m in agent.received_messages:
         assert hasattr(m, "body")
+
+
+# --- speech path and layering -------------------------------------------------
+
+class _FailingStt(FakeSttService):
+    def __init__(self, error=None, transcript=""):
+        self.error = error
+        self.transcript = transcript
+
+    async def transcribe(self, speech_base64: str) -> str:
+        if self.error is not None:
+            raise self.error
+        return self.transcript
+
+
+async def _speech_events(stt):
+    from src.use_cases.response_use_case import ResponseSpeechUseCase
+
+    use_case = ResponseSpeechUseCase(
+        conversation_repo=FakeConversationRepo(),
+        message_repo=FakeMessageRepo(),
+        agent_service=FakeAgentService(events=[]),
+        tts_service=None,
+        stt_service=stt,
+        prompt_repo=FakePromptRepository(),
+        options=RESPONSE_OPTIONS,
+    )
+    return [e async for e in use_case.execute(None, "AAAA", Character.LUNA, None, enable_tts=False)]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_transcription_ends_the_stream_with_an_error_event():
+    # It used to raise out of the SSE stream, which cut the response off with no
+    # event: the page waited for a reply that had already failed.
+    for stt in (_FailingStt(error=RuntimeError("down")), _FailingStt(error=ValueError("bad")), _FailingStt()):
+        events = await _speech_events(stt)
+        assert isinstance(events[-1], ErrorEvent), [type(e).__name__ for e in events]
+        assert not any(isinstance(e, DoneEvent) for e in events)
+
+
+def test_use_cases_take_their_settings_from_the_composition_root():
+    from pathlib import Path
+
+    import ast
+
+    for path in Path("src/use_cases").glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = (
+                [node.module or ""] if isinstance(node, ast.ImportFrom)
+                else [a.name for a in node.names] if isinstance(node, ast.Import) else []
+            )
+            assert not any(n == "src.config" or n.startswith("src.config.") for n in names), (
+                f"{path} imports configuration directly"
+            )

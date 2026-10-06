@@ -2,9 +2,10 @@
 
 import logging
 from dataclasses import asdict
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.params import Query
+from fastapi.params import Path, Query
 
 from src.drivers import dependencies
 from src.drivers.rest.schemas import (
@@ -15,6 +16,7 @@ from src.drivers.rest.schemas import (
     UpdateConversationRequest,
     UserContextSchema,
 )
+from src.shared.constants import UUID_PATTERN
 from src.use_cases import (
     DeleteConversationUseCase,
     DeleteMessageUseCase,
@@ -25,6 +27,9 @@ from src.use_cases import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversation", tags=["conversation"])
+
+ConversationId = Annotated[str, Path(pattern=UUID_PATTERN)]
+MessageId = Annotated[str, Path(pattern=UUID_PATTERN)]
 
 
 def _to_conversation(c) -> ConversationResponse:
@@ -52,7 +57,7 @@ async def list_conversations(
 
 @router.patch("/{conversation_id}", response_model=ConversationResponse)
 async def update_conversation(
-    conversation_id: str,
+    conversation_id: ConversationId,
     request: UpdateConversationRequest,
     use_case: UpdateConversationUseCase = Depends(dependencies.get_update_conversation_use_case),
 ):
@@ -65,7 +70,7 @@ async def update_conversation(
 
 @router.delete("/{conversation_id}", status_code=204)
 async def delete_conversation(
-    conversation_id: str,
+    conversation_id: ConversationId,
     use_case: DeleteConversationUseCase = Depends(dependencies.get_delete_conversation_use_case),
 ):
     """Delete a conversation and all its messages."""
@@ -76,7 +81,7 @@ async def delete_conversation(
 
 @router.get("/{conversation_id}/message", response_model=ListMessagesPaginatedResponse)
 async def list_messages(
-    conversation_id: str,
+    conversation_id: ConversationId,
     limit: int = Query(20, ge=1, le=100, description="Number of messages per page"),
     cursor: str | None = Query(None, description="Opaque cursor from previous response for next page"),
     use_case: ListConversationMessagesUseCase = Depends(dependencies.get_list_conversation_messages_use_case),
@@ -106,11 +111,11 @@ async def list_messages(
 
 @router.delete("/{conversation_id}/message/{message_id}", status_code=204)
 async def delete_message(
-    conversation_id: str,
-    message_id: str,
+    conversation_id: ConversationId,
+    message_id: MessageId,
     use_case: DeleteMessageUseCase = Depends(dependencies.get_delete_message_use_case),
 ):
     """Delete a message from a conversation."""
-    deleted = await use_case.execute(message_id=message_id)
+    deleted = await use_case.execute(conversation_id=conversation_id, message_id=message_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Message not found")

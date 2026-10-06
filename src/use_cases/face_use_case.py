@@ -132,12 +132,18 @@ class MatchFaceUseCase:
     service on this route.
     """
 
-    def __init__(self, face_service: IFaceService):
+    def __init__(self, face_service: IFaceService, min_threshold: float = 0.0):
         self.face_service = face_service
+        # The caller chooses how strict a match must be, but never looser than
+        # this: at a threshold of 0 any vector at all returns the nearest
+        # enrolled person, name and NIM.
+        self.min_threshold = min_threshold
 
     async def execute(
         self, embedding: list[float], threshold: float = 0.6
     ) -> tuple[FaceData, float] | None:
         if not embedding:
             return None
-        return await self.face_service.search_face(embedding=embedding, threshold=threshold)
+        return await self.face_service.search_face(
+            embedding=embedding, threshold=max(threshold, self.min_threshold)
+        )

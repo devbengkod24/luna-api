@@ -56,5 +56,13 @@ class DeleteMessageUseCase:
     def __init__(self, message_repo: IMessageRepository):
         self.message_repo = message_repo
 
-    async def execute(self, message_id: str) -> bool:
+    async def execute(self, conversation_id: str, message_id: str) -> bool:
+        """Delete a message, but only through the conversation it belongs to.
+
+        The route names both, and used to act on the message id alone, so any
+        message could be deleted by pairing its id with any conversation.
+        """
+        message = await self.message_repo.get_by_id(message_id)
+        if message is None or str(message.conversation_id) != str(conversation_id):
+            return False
         return await self.message_repo.delete(id=message_id)

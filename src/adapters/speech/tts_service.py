@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 from src.adapters.speech.tts_normalizer import normalize_for_tts
+from src.config import settings
 from src.ports.services import ITTSService
 from src.shared.constants import Character
 
@@ -135,22 +136,9 @@ class MMSTTSService(ITTSService):
             # conversation text must not land in INFO logs).
             logger.debug("Synthesizing text (chars=%d)", len(text or ""))
 
-            # Tokenize input text
-            inputs = self.tokenizer(text, return_tensors="pt")
-
-            # Pindahkan inputs ke device yang sama dengan model
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-
-            # Generate audio waveform
-            with torch.no_grad():
-                output = self.model(**inputs).waveform
-
-            # Konversi tensor ke numpy array
-            # Output shape: [1, sequence_length], kita ambil [0]
-            audio_numpy = output.squeeze().cpu().numpy()
-
-            # Konversi ke base64
-            audio_base64 = self._audio_to_base64(audio_numpy, self.sr)
+            # Off the event loop: inference takes as long as the sentence, and
+            # run inline it froze the turn socket and every other request.
+            audio_base64 = await asyncio.to_thread(self._synthesize_sync, text)
 
             logger.info("Text synthesized successfully")
             return audio_base64
@@ -158,6 +146,14 @@ class MMSTTSService(ITTSService):
         except Exception as e:
             logger.error(f"Failed to synthesize text: {e}")
             raise
+
+    def _synthesize_sync(self, text: str) -> str:
+        inputs = self.tokenizer(text, return_tensors="pt")
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            output = self.model(**inputs).waveform
+        # Output shape: [1, sequence_length]
+        return self._audio_to_base64(output.squeeze().cpu().numpy(), self.sr)
 
 
 class ChatterboxSTTSService(ITTSService):
@@ -268,25 +264,22 @@ class ChatterboxSTTSService(ITTSService):
         try:
             logger.debug("Chatterbox synthesizing text (chars=%d)", len(text or ""))
 
-            # `generate` usually returns a torch Tensor waveform.
-            prompt = self._character_prompt_path(character)
-            if prompt:
-                wav = self.model.generate(text, audio_prompt_path=prompt)
-            else:
-                wav = self.model.generate(text)
-
-            # Support torch Tensor / numpy.
-            if hasattr(wav, "detach"):
-                audio_np = wav.detach().cpu().numpy()
-            else:
-                audio_np = np.asarray(wav)
-
-            audio_np = np.squeeze(audio_np)
-            return self._audio_to_base64(audio_np, int(self.sr))
+            # Off the event loop, for the same reason as MMS above.
+            return await asyncio.to_thread(self._synthesize_sync, text, character)
 
         except Exception as e:
             logger.error("Failed to synthesize with Chatterbox: %s", e)
             raise
+
+    def _synthesize_sync(self, text: str, character: int) -> str:
+        # `generate` usually returns a torch Tensor waveform.
+        prompt = self._character_prompt_path(character)
+        if prompt:
+            wav = self.model.generate(text, audio_prompt_path=prompt)
+        else:
+            wav = self.model.generate(text)
+        audio_np = wav.detach().cpu().numpy() if hasattr(wav, "detach") else np.asarray(wav)
+        return self._audio_to_base64(np.squeeze(audio_np), int(self.sr))
 
 
 class F5TTSIndonesianService(ITTSService):
@@ -585,10 +578,26 @@ class CartesiaTTSService(ITTSService):
                 )
 
             streamed = False
+            carry = b""
             try:
-                async for pcm in self._stream_with_key(normalized, api_key):
-                    streamed = True
-                    yield pcm
+                stream = self._stream_with_key(normalized, api_key).__aiter__()
+                while True:
+                    try:
+                        # Per chunk, not per sentence: a long sentence legitimately
+                        # streams for seconds, a stalled one sends nothing.
+                        async with asyncio.timeout(settings.tts_stream_idle_timeout_seconds):
+                            pcm = await anext(stream)
+                    except StopAsyncIteration:
+                        break
+                    # Whole samples only. An odd byte waits for the next chunk:
+                    # the page cannot play half a sample, and splitting one would
+                    # shift every later sample into noise.
+                    pcm = carry + pcm
+                    usable = len(pcm) - (len(pcm) % 2)
+                    carry = pcm[usable:]
+                    if usable:
+                        streamed = True
+                        yield pcm[:usable]
                 return
             except Exception as e:
                 # Once bytes are on the wire the client is already playing them,
@@ -596,7 +605,7 @@ class CartesiaTTSService(ITTSService):
                 # sentence together. Only a failure before the first chunk is
                 # recoverable.
                 if streamed or not _is_key_exhausted(e):
-                    logger.error("Cartesia TTS streaming failed: %s", e)
+                    logger.error("Cartesia TTS streaming failed: %s: %s", type(e).__name__, e)
                     raise
                 if self._keys.retire(api_key) is None:
                     logger.error("Cartesia TTS failed — no keys left: %s", e)

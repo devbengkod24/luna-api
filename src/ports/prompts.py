@@ -15,8 +15,3 @@ class IPromptRepository(ABC):
     ) -> str:
         """Return a rendered system prompt for the given character + context."""
         ...
-
-    @abstractmethod
-    def get_tts_system_prompt(self) -> str:
-        """Return the system prompt used to preprocess text for TTS."""
-        ...

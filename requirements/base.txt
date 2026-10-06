@@ -49,21 +49,14 @@ docx2txt==0.9
 opencv-python-headless==4.9.0.80
 numpy>=1.26.0,<2.0.0
 
-# STT
-faster-whisper==1.2.1
-# Cloud STT (STT_PROVIDER=deepgram); faster-whisper stays the local fallback.
+# STT (cloud). exp/edge is the branch with local faster-whisper.
 deepgram-sdk==7.5.0
 
 # transformers==5.2.0  # SLIM: only needed by the MMS-TTS adapter. Unused with cartesia. Re-enable to switch back.
-# onnxruntime is NOT listed here and must not be removed from the image: it
-# arrives as a faster-whisper dependency and is what runs Whisper's own Silero
-# VAD. That is `vad_filter=True`, the only guard that stops silence decoding as
-# a confident "Terima kasih." Nothing in this repo imports it directly.
 
 # Utils
 python-dotenv==1.2.1
 # aiofiles==25.1.0
-ctranslate2==4.6.3
 
 uuid7==0.1.0
 
@@ -75,8 +68,6 @@ minio==7.2.3
 ml-dtypes==0.5.4
 
 aiofiles==24.1.0
-
-nemoguardrails==0.21.0
 
 cartesia==3.2.0
 

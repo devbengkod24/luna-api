@@ -21,10 +21,6 @@ class IAgentService(ABC):
     ) -> AsyncGenerator[StreamEvent, None]:
         ...
 
-    @abstractmethod
-    async def preprocess_tts(self, text: str, system_prompt: str) -> str:
-        ...
-
 
 class IRAGService(ABC):
     """Interface for RAG retrieval and document indexing."""
@@ -149,11 +145,20 @@ class ISTTService(ABC):
         """Transcribe raw 16-bit mono PCM directly. Skips WAV/base64 wrapping."""
         ...
 
+    async def keep_warm(self) -> None:
+        """Keep the connection to a remote STT open while a turn is spoken, so
+        the transcription at its end does not pay for a new one. Never raises.
+        A local model has nothing to warm."""
+        return None
+
 
 class ITTSService(ABC):
     """Text-to-Speech service interface."""
 
     supports_streaming: ClassVar[bool] = False
+    # The rate of the PCM `synthesize_stream` yields, told to the client with
+    # every chunk. Non-streaming adapters carry theirs inside the WAV.
+    sample_rate: int = 22050
 
     @abstractmethod
     async def synthesize(self, text: str, character: int) -> str:

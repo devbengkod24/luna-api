@@ -2,7 +2,7 @@ import base64
 from pydantic import BaseModel, Field, field_validator
 
 from src.config import settings
-from src.shared.constants import Character
+from src.shared.constants import UUID_PATTERN, Character
 
 
 class UserContextSchema(BaseModel):
@@ -31,7 +31,7 @@ class UserContextSchema(BaseModel):
 class ResponseTextRequest(BaseModel):
     """Request model for text-based response."""
 
-    conversation_id: str | None = None
+    conversation_id: str | None = Field(default=None, pattern=UUID_PATTERN)
     user_input: str = Field(
         ...,
         min_length=1,
@@ -62,7 +62,7 @@ class ResponseTextRequest(BaseModel):
 class ResponseAudioRequest(BaseModel):
     """Request model for audio-based response."""
 
-    conversation_id: str | None = None
+    conversation_id: str | None = Field(default=None, pattern=UUID_PATTERN)
     audio_input: str = Field(
         ...,
         min_length=1,

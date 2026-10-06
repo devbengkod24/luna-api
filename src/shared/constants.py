@@ -2,6 +2,11 @@
 
 from enum import Enum
 
+# The shape of every id this service mints (conversations, messages, files are
+# UUIDv7). An id of any other shape is not ours, and checking at the boundary
+# keeps it from reaching the database as a type error and coming back as a 500.
+UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
 
 class MessageType(Enum):
     USER = "user"

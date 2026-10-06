@@ -28,7 +28,21 @@ class Settings(BaseSettings):
     app_name: str = Field(default="luna-api", alias="APP_NAME")
     app_version: str = Field(default="1.0.0", alias="APP_VERSION")
     environment: str = Field(default="development", alias="ENVIRONMENT")
-    debug: bool = Field(default=True, alias="DEBUG")
+    # Off unless asked for. In debug mode Starlette answers an unhandled
+    # exception with its traceback, bypassing the generic 500 handler in
+    # drivers/main.py — to anyone who can reach the port.
+    debug: bool = Field(default=False, alias="DEBUG")
+    # The credential every /api/v1 route and the turn socket require, as
+    # `Authorization: Bearer <token>` (or `?token=` for what a browser loads by
+    # itself, like an <img>). Empty leaves the API open, which is only right on
+    # a machine nobody else can reach: without it anyone on the network can list
+    # every enrolled name and NIM. The kiosk presents it as CLOUD_API_TOKEN.
+    api_access_token: str = Field(default="", alias="API_ACCESS_TOKEN")
+    # Largest request body accepted, enforced before anything parses it. Sized
+    # for the biggest legitimate upload (a 50 MB RAG document) and nothing else:
+    # a JSON body is parsed whole into memory, and the per-field limits in the
+    # schemas only run after that.
+    max_request_body_bytes: int = Field(default=51 * 1024 * 1024, alias="MAX_REQUEST_BODY_BYTES")
     api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
     # Root log level. Without an explicit logging config the root logger has no
     # handler, so every logger.info() in src/ is silently dropped (uvicorn only
@@ -118,9 +132,10 @@ class Settings(BaseSettings):
     face_detection_size: int = Field(
         default=320, alias="FACE_DETECTION_SIZE"
     )  # 320 faster, 640 more accurate
-    face_similarity_threshold: float = Field(
-        default=0.5, alias="FACE_SIMILARITY_THRESHOLD"
-    )  # Cosine similarity threshold (0.4-0.6 recommended)
+    # The lowest threshold `/face/match` will search at, whatever the caller
+    # asks for. The kiosk sends SFace's own 0.363; a caller sending 0 would
+    # otherwise get the nearest enrolled person back for any vector at all.
+    face_match_min_threshold: float = Field(default=0.3, alias="FACE_MATCH_MIN_THRESHOLD")
 
     # Width of the face vectors in Qdrant. 512 = InsightFace ArcFace, which is
     # what the existing index was seeded with; 128 = SFace, which luna-edge now
@@ -216,24 +231,9 @@ class Settings(BaseSettings):
         default_factory=lambda: ["dinus.ac.id"], alias="EXA_CAMPUS_DOMAINS"
     )
 
-    # Speech-to-Text
+    # Speech-to-Text (Deepgram, batch). The kiosk owns endpointing, so the whole
+    # turn is transcribed once, at turn_end.
     enable_stt: bool = Field(default=True, alias="ENABLE_STT")
-    # "whisper" (local faster-whisper) or "deepgram" (cloud, batch). Either way
-    # the kiosk owns endpointing and the whole turn is transcribed at turn_end.
-    # A misconfigured Deepgram falls back to Whisper in dependencies.py.
-    stt_provider: str = Field(default="whisper", alias="STT_PROVIDER")
-
-    # Faster Whisper (STT_PROVIDER=whisper, and the fallback)
-    whisper_model: str = Field(default="small", alias="WHISPER_MODEL")
-    whisper_language: str = Field(default="id", alias="WHISPER_LANGUAGE")
-    whisper_beam_size: int = Field(default=5, alias="WHISPER_BEAM_SIZE")
-    # Live voice path is latency-critical and utterances are short commands —
-    # greedy decoding (beam=1) shaves a large chunk off per-turn STT time with
-    # negligible accuracy loss. Chat/file uploads keep the higher-quality beam
-    # via `whisper_beam_size`.
-    whisper_voice_beam_size: int = Field(default=5, alias="WHISPER_VOICE_BEAM_SIZE")
-
-    # Deepgram STT (STT_PROVIDER=deepgram)
     deepgram_api_key: str | None = Field(default=None, alias="DEEPGRAM_API_KEY")
     # nova-3 has supported Indonesian since Jan 2026. Older docs predate that —
     # check the live language table before assuming a language is nova-2-only.
@@ -245,6 +245,14 @@ class Settings(BaseSettings):
     # A hung request blocks the turn, so fail fast rather than let the visitor
     # wait for the kiosk's own reply watchdog.
     deepgram_timeout_seconds: int = Field(default=15, alias="DEEPGRAM_TIMEOUT_SECONDS")
+    # Deepgram closes an idle connection after about five seconds, and turns
+    # are always further apart than that, so every transcription paid a new
+    # TLS handshake: measured 1440 ms cold against ~910 ms kept warm for 2.5 s
+    # of audio. While a turn is being spoken the connection is touched this
+    # often, so it is still open at turn_end.
+    stt_keep_warm_interval_seconds: float = Field(
+        default=4.0, alias="STT_KEEP_WARM_INTERVAL_SECONDS"
+    )
 
     # Turn WebSocket (/turn/stream)
     enable_voice_ws: bool = Field(default=True, alias="ENABLE_VOICE_WS")
@@ -280,7 +288,16 @@ class Settings(BaseSettings):
     cartesia_api_key: str | None = Field(default=None, alias="CARTESIA_API_KEY")
     cartesia_voice_id: str = Field(default="", alias="CARTESIA_VOICE_ID")
     cartesia_model_id: str = Field(default="sonic-3.5", alias="CARTESIA_MODEL_ID")
-    cartesia_sample_rate: int = Field(default=44100, alias="CARTESIA_SAMPLE_RATE")
+    # 24 kHz, not 44.1: the reply is speech, the kiosk resamples to its output
+    # anyway, and every chunk is base64 in JSON across two hops and decoded on
+    # the Jetson's main thread. 44.1 kHz was 1.8x the bytes for no audible gain.
+    cartesia_sample_rate: int = Field(default=24000, alias="CARTESIA_SAMPLE_RATE")
+    # How long a TTS stream may go without a chunk before the sentence is given
+    # up on. Without it a hung stream held the reply until the whole pipeline
+    # timed out, silently.
+    tts_stream_idle_timeout_seconds: float = Field(
+        default=10.0, alias="TTS_STREAM_IDLE_TIMEOUT_SECONDS"
+    )
     cartesia_language: str = Field(default="id", alias="CARTESIA_LANGUAGE")
 
     @property
