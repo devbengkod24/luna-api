@@ -4,8 +4,10 @@ Kontrak kode untuk semua guardrail di luna-api. Dokumen ini mengikat bentuk
 interface, bukan hanya niat. Jika kode menyimpang dari sini, salah satu harus
 diperbaiki.
 
-Rencana pengerjaan ada di [`implementation-plan.md`](./implementation-plan.md).
-Keadaan layer yang aktif ada di [`guardrails.md`](./guardrails.md).
+Peta tiga tahap dan tool di tiap tahap ada di
+[`THREE_STAGES.md`](../architecture/THREE_STAGES.md). Rencana pengerjaan ada di
+[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Keadaan layer yang aktif
+ada di [`CURRENT_STATE.md`](../architecture/CURRENT_STATE.md).
 
 ---
 
@@ -33,8 +35,8 @@ Keadaan layer yang aktif ada di [`guardrails.md`](./guardrails.md).
 | 18 | Adapter tidak pernah melempar; composite menerapkan fail mode |
 | 19 | Composite dirakit di `dependencies.py` |
 | 20 | `GuardSettings` JSON dengan `enabled`, `budget_ms`, `fail_mode` |
-| 21 | Semantik output = background task setelah turn |
-| 22 | Qwen3Guard output **audit dulu**, bukan blocking |
+| 21 | Tidak ada model semantik di jalur request |
+| 22 | Audit mendalam dilakukan offline dengan LLM yang sudah ada, bukan inline |
 
 ---
 
@@ -176,11 +178,14 @@ class CompositeGuardrail(IGuardrail):
 
 | Stage | Urutan |
 |---|---|
-| `INPUT` | `regex_input` → `qwen3guard_input` (flag) |
+| `INPUT` | `regex_input` |
 | `RETRIEVED` | `prompt_guard` → `provenance_policy` |
 | `OUTPUT` | `canary` → `secret` → `pii_regex` → `presidio` (flag) |
 
-Semantik output tidak ada di rantai ini; ia background task (§5.4).
+Tidak ada adapter semantik di rantai mana pun. Jika suatu saat dibutuhkan,
+ia harus melewati ambang keputusan di
+[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) §"Kalau nanti butuh
+moderasi semantik inline" terlebih dahulu.
 
 ---
 
@@ -217,8 +222,7 @@ Fail mode bisa diubah lewat `GuardSettings` tanpa deploy.
     "secret":       {"enabled": true,  "fail_mode": "refuse"},
     "pii_regex":    {"enabled": true,  "fail_mode": "refuse"},
     "presidio":     {"enabled": false, "fail_mode": "allow"},
-    "prompt_guard": {"enabled": true,  "fail_mode": "drop"},
-    "qwen3guard":   {"enabled": false, "fail_mode": "allow"}
+    "prompt_guard": {"enabled": true,  "fail_mode": "drop"}
   }
 }
 ```
@@ -372,7 +376,6 @@ Contoh wajib:
 - `test_pii_regex_passes_nim` (NIM bukan NIK)
 - `test_prompt_guard_drops_injected_chunk`
 - `test_prompt_guard_passes_ukt_faq_chunk`
-- `test_qwen3guard_marks_controversial_not_unsafe`
 
 ### 8.2 Composite test
 
@@ -413,7 +416,7 @@ FakeGuardrail(verdicts={GuardStage.OUTPUT: [Verdict.allow(), Verdict.refuse(...)
 ## 9. Yang tidak termasuk spesifikasi ini
 
 - `TOOL_CALL` stage — belum ada tool dengan efek samping.
-- Qwen3Guard output blocking — audit dulu.
+- Model semantik di jalur request — audit dilakukan offline.
 - Presidio di input — nilainya rendah.
 - Redaksi `ToolResultEvent` — teks tool masuk konteks model dan sudah ditangani
   di `RETRIEVED`.
@@ -430,4 +433,4 @@ FakeGuardrail(verdicts={GuardStage.OUTPUT: [Verdict.allow(), Verdict.refuse(...)
 6. `prompt_guard` + sisip di `rag_search`/`search_web`.
 7. Contract test per adapter.
 8. `presidio` (flag, default off).
-9. `qwen3guard` audit (flag, default off).
+9. Langfuse + Garak/Promptfoo + audit offline dengan LLM yang sudah ada.

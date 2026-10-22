@@ -1,4 +1,11 @@
-# Peta Guardrails luna-api
+# Keadaan Guardrails luna-api
+
+> **Keadaan sekarang.** Dokumen ini memetakan semua penjagaan yang **sudah aktif**.
+> Untuk peta tiga tahap dan tool yang direncanakan, lihat
+> [`THREE_STAGES.md`](./THREE_STAGES.md). Untuk kriteria hasil akhir, lihat
+> [`TARGET_OUTCOMES.md`](../product/TARGET_OUTCOMES.md). Untuk rencana pengerjaan, lihat
+> [`IMPLEMENTATION_PLAN.md`](../engineering/IMPLEMENTATION_PLAN.md). Untuk kontrak kode, lihat
+> [`IGARDRAIL_SPEC.md`](../engineering/IGARDRAIL_SPEC.md).
 
 Dokumen ini memetakan semua penjagaan yang aktif dari dua pintu masuk — REST dan
 WebSocket — sampai balasan diucapkan. Setiap klaim menunjuk modul dan tes yang
